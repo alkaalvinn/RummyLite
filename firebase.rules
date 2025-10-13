@@ -1,0 +1,42 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Rooms collection
+    match /rooms/{roomId} {
+      // Allow read if user is in the room
+      allow read: if request.auth != null &&
+        request.auth.uid in resource.data.players;
+
+      // Allow create if user is authenticated
+      allow create: if request.auth != null;
+
+      // Allow update if user is in the room and updating valid fields
+      allow update: if request.auth != null &&
+        request.auth.uid in resource.data.players &&
+        request.resource.data.matches({
+          players: request.auth.token.name,
+          status: request.resource.data.status,
+          gameState: request.resource.data.gameState,
+          lastUpdate: request.time
+        });
+
+      // Allow delete if user is the host
+      allow delete: if request.auth != null &&
+        request.auth.uid == resource.data.hostId;
+    }
+
+    // Game states (if stored separately)
+    match /gameStates/{gameId} {
+      // Only allow read/write by players in the game
+      allow read, write: if request.auth != null &&
+        request.auth.uid in resource.data.players;
+    }
+
+    // User profiles (optional)
+    match /users/{userId} {
+      // Users can only read/write their own profile
+      allow read, write: if request.auth != null &&
+        request.auth.uid == userId;
+    }
+  }
+}
