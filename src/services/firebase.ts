@@ -4,13 +4,13 @@ import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, s
 
 // Firebase configuration
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyCJGxN_IB1szTrlcqSDbgQDe-PzTi6upWY",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "rummylite-68c13.firebaseapp.com",
-  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "https://rummylite-68c13-default-rtdb.firebaseio.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "rummylite-68c13",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "rummylite-68c13.firebasestorage.app",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "286495207343",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:286495207343:web:0d1266432cdf73abe6c95a",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
 // Initialize Firebase
