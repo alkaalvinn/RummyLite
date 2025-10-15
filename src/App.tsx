@@ -4,7 +4,7 @@ import { useAuthStore } from './hooks/useAuthStore';
 import Auth from './components/Auth/Auth';
 import Home from './pages/Home';
 import Room from './components/Room/Room';
-import GameBoard from './components/GameBoard/GameBoard';
+import GameBoard from './components/GameBoard/GameBoardNew';
 
 function App() {
   const { user, loading, error, initializeAuth } = useAuthStore();
@@ -20,23 +20,23 @@ function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-green-900 via-green-800 to-green-900">
-        <div className="text-white text-xl mb-4">Memuat Rummy Lite...</div>
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white">
+        <div className="text-black text-xl mb-4">Memuat Rummy Lite...</div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-green-900 via-green-800 to-green-900 px-4">
-        <div className="bg-red-500/20 border border-red-500 text-red-200 px-6 py-4 rounded-lg mb-4 max-w-md text-center">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white px-4">
+        <div className="bg-black border border-black text-white px-6 py-4 rounded-lg mb-4 max-w-md text-center">
           <div className="font-bold mb-2">Error</div>
           <div>{error}</div>
         </div>
         <button
           onClick={() => window.location.reload()}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
         >
           Reload
         </button>
@@ -46,7 +46,7 @@ function App() {
 
   return (
     <Router>
-      <div className="min-h-screen bg-gradient-to-br from-green-900 via-green-800 to-green-900">
+      <div className="min-h-screen bg-white">
         <Routes>
           <Route
             path="/auth"

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { subscribeToRoom } from '../../services/firebase';
-import { GameState, Card, Player, getNextPlayerIndex, validateAction, canPlayerWin } from '../../lib/rummyEngine';
+import { GameState, Card, getNextPlayerIndex, validateAction, canPlayerWin, hasMultipleMatchingCards } from '../../lib/rummyEngine';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 
@@ -15,6 +15,8 @@ const GameBoard: React.FC = () => {
   const [error, setError] = useState('');
   const [selectedCards, setSelectedCards] = useState<string[]>([]);
     const [discardDrawCount, setDiscardDrawCount] = useState<number>(0);
+    const [showAllDiscarded, setShowAllDiscarded] = useState<boolean>(false);
+  const [groupByPlayer, setGroupByPlayer] = useState<boolean>(false);
 
   useEffect(() => {
     if (!roomId || !user) {
@@ -53,6 +55,17 @@ const GameBoard: React.FC = () => {
     if (currentPlayer.id !== user.uid) return;
 
     try {
+      // Check for matching cards in discard pile
+      const { matchingCards } = hasMultipleMatchingCards(currentPlayer, gameState.discardPile);
+
+      // Auto-determine draw source based on matching cards
+      if (!fromDiscard && matchingCards.length > 0) {
+        // Player must take from discard pile if there are matching cards
+        fromDiscard = true;
+        // Set discard draw count to match all available cards
+        setDiscardDrawCount(matchingCards.length);
+      }
+
       let newHand: Card[];
       let newDeck = [...gameState.deck];
       let newDiscardPile = [...gameState.discardPile];
@@ -74,7 +87,7 @@ const GameBoard: React.FC = () => {
           return;
         }
 
-        // Take cards from discard pile
+        // Take matching cards from discard pile
         drawnCards = gameState.discardPile.slice(-discardDrawCount);
         newDiscardPile = gameState.discardPile.slice(0, -discardDrawCount);
         newHand = [...currentPlayer.hand, ...drawnCards];
@@ -191,6 +204,10 @@ const GameBoard: React.FC = () => {
               type: 'discard' as const,
               playerId: user.uid,
               cardId
+            },
+            discardedBy: {
+              ...gameState.discardedBy,
+              [cardId]: user.uid
             }
           };
 
@@ -212,6 +229,8 @@ const GameBoard: React.FC = () => {
         hand: newHand
       };
 
+      const isFirstPlayerDiscard = !gameState.firstPlayerDiscarded && gameState.currentPlayerIndex === 0 && currentPlayer.hand.length === 8;
+
       const newGameState = {
         ...gameState,
         discardPile: newDiscardPile,
@@ -221,10 +240,15 @@ const GameBoard: React.FC = () => {
         status: gameStatus_final as 'playing' | 'finished',
         winner: gameWinner,
         lastDrawFromDiscard: false, // Reset discard draw flag
+        firstPlayerDiscarded: gameState.firstPlayerDiscarded || isFirstPlayerDiscard,
         lastAction: {
           type: 'discard',
           playerId: user.uid,
           cardId
+        },
+        discardedBy: {
+          ...gameState.discardedBy,
+          [cardId]: user.uid
         }
       };
 
@@ -323,23 +347,38 @@ const GameBoard: React.FC = () => {
   };
 
   const getCardColor = (card: Card) => {
-    if (card.isJoker) return 'text-purple-400';
-    if (card.suit === 'hearts' || card.suit === 'diamonds') return 'text-red-400';
-    return 'text-gray-800';
+    if (card.isJoker) return 'text-black';
+    if (card.suit === 'hearts' || card.suit === 'diamonds') return 'text-black';
+    return 'text-black';
+  };
+
+  const getPlayerColor = (playerId: string) => {
+    const colors = [
+      'bg-blue-500',
+      'bg-green-500',
+      'bg-red-500',
+      'bg-purple-500',
+      'bg-yellow-500',
+      'bg-pink-500',
+      'bg-indigo-500',
+      'bg-gray-500'
+    ];
+    const playerIndex = gameState?.players.findIndex(p => p.id === playerId) ?? 0;
+    return colors[playerIndex % colors.length];
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-white text-xl">Loading game...</div>
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="text-black text-xl">Loading game...</div>
       </div>
     );
   }
 
   if (!gameState) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-white text-xl">Game tidak ditemukan</div>
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="text-black text-xl">Game tidak ditemukan</div>
       </div>
     );
   }
@@ -349,16 +388,16 @@ const GameBoard: React.FC = () => {
   const myPlayer = gameState.players.find(p => p.id === user?.uid);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-900 via-green-800 to-green-900">
+    <div className="min-h-screen bg-white">
       {/* Header */}
-      <header className="bg-black/20 backdrop-blur-sm border-b border-white/10">
+      <header className="bg-white border-b border-black">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center space-x-4">
-              <h1 className="text-xl font-bold text-white">Room: {roomId}</h1>
-              <span className="text-gray-300">Ronde {gameState.currentRound}</span>
+              <h1 className="text-xl font-bold text-black">Room: {roomId}</h1>
+              <span className="text-gray-600">Ronde {gameState.currentRound}</span>
             </div>
-            <div className="text-white">
+            <div className="text-black">
               Giliran: <span className="font-bold">{currentPlayer?.displayName}</span>
             </div>
           </div>
@@ -368,35 +407,35 @@ const GameBoard: React.FC = () => {
       {/* Game Board */}
       <main className="container mx-auto px-4 py-6">
         {error && (
-          <div className="mb-4 bg-red-500/20 border border-red-500 text-red-200 px-4 py-3 rounded-lg text-sm text-center">
+          <div className="mb-4 bg-black text-white px-4 py-3 rounded-lg text-sm text-center border border-black">
             {error}
           </div>
         )}
 
-        
+
         {/* Joker Reference Card Display */}
         {gameState.jokerReferenceCard && (
-          <div className="bg-white/10 backdrop-blur-lg rounded-lg p-4 mb-6">
+          <div className="bg-white border border-black rounded-lg p-4 mb-6">
             <div className="text-center">
-              <h3 className="text-white font-medium mb-2">Kartu Joker</h3>
+              <h3 className="text-black font-medium mb-2">Kartu Joker</h3>
               <div className="flex justify-center items-center space-x-4">
                 <div className="text-center">
-                  <p className="text-sm text-gray-300 mb-2">Referensi</p>
-                  <div className="w-16 h-24 bg-yellow-500 rounded-lg flex items-center justify-center text-2xl font-bold shadow-lg">
+                  <p className="text-sm text-gray-600 mb-2">Referensi</p>
+                  <div className="w-16 h-24 bg-white border-2 border-black rounded-lg flex items-center justify-center text-2xl font-bold shadow-lg">
                     <span className={getCardColor(gameState.jokerReferenceCard)}>
                       {getCardDisplay(gameState.jokerReferenceCard)}
                     </span>
                   </div>
                 </div>
                 <div className="text-center">
-                  <p className="text-sm text-gray-300 mb-2">Joker</p>
-                  <div className="w-16 h-24 bg-purple-500 rounded-lg flex items-center justify-center text-3xl shadow-lg">
+                  <p className="text-sm text-gray-600 mb-2">Joker</p>
+                  <div className="w-16 h-24 bg-black border-2 border-black rounded-lg flex items-center justify-center text-3xl text-white shadow-lg">
                     🃏
                   </div>
                 </div>
                 <div className="text-left">
-                  <p className="text-sm text-gray-300">Semua kartu {gameState.jokerReferenceCard.rank} menjadi Joker</p>
-                  <p className="text-xs text-gray-400">Kecuali kartu referensi di atas</p>
+                  <p className="text-sm text-gray-600">Semua kartu {gameState.jokerReferenceCard.rank} menjadi Joker</p>
+                  <p className="text-xs text-gray-500">Kecuali kartu referensi di atas</p>
                 </div>
               </div>
             </div>
@@ -406,21 +445,21 @@ const GameBoard: React.FC = () => {
         {/* Other Players */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           {gameState.players.filter(p => p.id !== user?.uid).map(player => (
-            <div key={player.id} className="bg-white/10 backdrop-blur-lg rounded-lg p-4">
+            <div key={player.id} className="bg-white border border-black rounded-lg p-4">
               <div className="flex justify-between items-center mb-2">
-                <h3 className="text-white font-medium">{player.displayName}</h3>
+                <h3 className="text-black font-medium">{player.displayName}</h3>
                 {currentPlayer?.id === player.id && (
-                  <span className="px-2 py-1 bg-yellow-600/30 text-yellow-300 text-xs rounded">
+                  <span className="px-2 py-1 bg-black text-white text-xs rounded">
                     Giliran
                   </span>
                 )}
               </div>
-              <div className="text-sm text-gray-300">
+              <div className="text-sm text-gray-600">
                 Kartu: {player.hand.length} | Melds: {player.melds.length}
               </div>
               <div className="flex flex-wrap gap-1 mt-2">
                 {player.melds.map((meld, index) => (
-                  <div key={meld.id} className="px-2 py-1 bg-blue-600/30 text-blue-300 text-xs rounded">
+                  <div key={meld.id} className="px-2 py-1 bg-black text-white text-xs rounded">
                     Meld {index + 1}
                   </div>
                 ))}
@@ -430,114 +469,162 @@ const GameBoard: React.FC = () => {
         </div>
 
         {/* Play Area */}
-        <div className="bg-white/10 backdrop-blur-lg rounded-lg p-6 mb-6">
+        <div className="bg-white border border-black rounded-lg p-6 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Deck */}
             <div className="text-center">
-              <h3 className="text-white font-medium mb-2">Deck</h3>
+              <h3 className="text-black font-medium mb-2">Deck</h3>
               <div className="inline-block">
-                <div className="w-16 h-24 bg-blue-800 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-lg">
+                <div className="w-16 h-24 bg-black border-2 border-black rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-lg">
                   {gameState.deck.length}
                 </div>
-                <div className="text-sm text-gray-300 mt-1">Kartu tersisa</div>
+                <div className="text-sm text-gray-600 mt-1">Kartu tersisa</div>
               </div>
               {isMyTurn && (
                 <div className="mt-2 flex flex-col space-y-2">
-                  <button
-                    onClick={() => handleDrawCard(false)}
-                    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-sm"
-                  >
-                    🎴 Ambil 1 dari Deck
-                  </button>
-                  {discardDrawCount > 0 && (
-                    <button
-                      onClick={() => handleDrawCard(true)}
-                      className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 transition-colors text-sm"
-                    >
-                      📤 Ambil {discardDrawCount} dari Discard
-                    </button>
-                  )}
+                  {/* Check if player has matching cards in discard pile */}
+                  {(() => {
+                    const { matchingCards } = hasMultipleMatchingCards(myPlayer!, gameState.discardPile);
+                    if (matchingCards.length > 0) {
+                      return (
+                        <div className="space-y-2">
+                          <p className="text-sm text-green-600 font-medium">
+                            ✅ {matchingCards.length} kartu cocok di discard pile
+                          </p>
+                          <button
+                            onClick={() => handleDrawCard(true)}
+                            className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-sm border border-green-600"
+                          >
+                            📤 Ambil {matchingCards.length} dari Discard
+                          </button>
+                        </div>
+                      );
+                    } else {
+                      return (
+                        <button
+                          onClick={() => handleDrawCard(false)}
+                          className="px-4 py-2 bg-black text-white rounded hover:bg-gray-800 transition-colors text-sm border border-black"
+                        >
+                          🎴 Ambil 1 dari Deck
+                        </button>
+                      );
+                    }
+                  })()}
                 </div>
               )}
             </div>
 
             {/* Discard Pile */}
             <div className="text-center">
-              <h3 className="text-white font-medium mb-2">Discard Pile (3 Terakhir)</h3>
+              <h3 className="text-black font-medium mb-2">Discard Pile (3 Terakhir)</h3>
               <div className="flex justify-center space-x-1">
                 {gameState.discardPile.length > 0 ? (
                   <>
-                    {gameState.discardPile.slice(-3).reverse().map((card, index) => (
-                      <div key={card.id} className="relative">
-                        <div
-                          className="w-12 h-16 bg-white rounded-lg flex items-center justify-center text-lg font-bold shadow-lg"
-                          style={{
-                            zIndex: index,
-                            transform: `translateX(${index * 8}px)`,
-                            position: index > 0 ? 'absolute' : 'relative'
-                          }}
-                        >
-                          <span className={getCardColor(card)}>
-                            {getCardDisplay(card)}
-                          </span>
-                        </div>
-                        {index === 0 && (
-                          <div className="absolute -top-2 -right-2 bg-yellow-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
-                            {gameState.discardPile.length}
+                    {gameState.discardPile.slice(-3).reverse().map((card, index) => {
+                      const isMatching = myPlayer ? hasMultipleMatchingCards(myPlayer, [card]).matchingCards.length > 0 : false;
+                      return (
+                        <div key={card.id} className="relative">
+                          <div
+                            className={`w-12 h-16 border-2 rounded-lg flex items-center justify-center text-lg font-bold shadow-lg transition-all ${
+                              isMatching ? 'bg-green-50 border-green-500' : 'bg-white border-black'
+                            }`}
+                            style={{
+                              zIndex: index,
+                              transform: `translateX(${index * 8}px)`,
+                              position: index > 0 ? 'absolute' : 'relative'
+                            }}
+                          >
+                            <span className={getCardColor(card)}>
+                              {getCardDisplay(card)}
+                            </span>
                           </div>
-                        )}
-                      </div>
-                    ))}
+                          {index === 0 && (
+                            <div className="absolute -top-2 -right-2 bg-black text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
+                              {gameState.discardPile.length}
+                            </div>
+                          )}
+                          {isMatching && (
+                            <div className="absolute -top-2 -left-2 bg-green-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
+                              ✓
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </>
                 ) : (
-                  <div className="w-16 h-24 bg-gray-600 rounded-lg flex items-center justify-center text-gray-400">
+                  <div className="w-16 h-24 bg-gray-200 border-2 border-black rounded-lg flex items-center justify-center text-gray-600">
                     Kosong
                   </div>
                 )}
               </div>
-              {isMyTurn && gameState.discardPile.length > 0 && (
-                <div className="mt-3 space-y-2">
-                  <p className="text-sm text-gray-300">Ambil dari discard pile:</p>
-                  <div className="flex justify-center space-x-2">
-                    {[1, 2, 3].filter(num => num <= gameState.discardPile.length).map(num => (
-                      <button
-                        key={num}
-                        onClick={() => setDiscardDrawCount(num)}
-                        className={`px-3 py-1 rounded text-sm transition-colors ${
-                          discardDrawCount === num
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
-                        }`}
-                      >
-                        {num}
-                      </button>
-                    ))}
-                  </div>
+              {isMyTurn && gameState.discardPile.length > 0 && myPlayer && (
+                <div className="mt-3">
+                  {(() => {
+                    const { matchingCards } = hasMultipleMatchingCards(myPlayer, gameState.discardPile);
+                    if (matchingCards.length > 0) {
+                      return (
+                        <div className="space-y-1">
+                          <p className="text-sm text-green-600 font-medium">
+                            Pasangan tersedia: {matchingCards.length} kartu
+                          </p>
+                          <div className="flex justify-center">
+                            {matchingCards.slice(0, 3).map((card) => (
+                              <div
+                                key={card.id}
+                                className="w-8 h-12 bg-green-50 border border-green-500 rounded flex items-center justify-center text-xs font-bold mx-0.5"
+                              >
+                                <span className={getCardColor(card)}>
+                                  {getCardDisplay(card)}
+                                </span>
+                              </div>
+                            ))}
+                            {matchingCards.length > 3 && (
+                              <div className="w-8 h-12 bg-green-500 border border-green-500 rounded flex items-center justify-center text-xs text-white font-bold mx-0.5">
+                                +{matchingCards.length - 3}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    } else {
+                      return (
+                        <p className="text-sm text-gray-600">
+                          Tidak ada kartu yang cocok
+                        </p>
+                      );
+                    }
+                  })()}
                 </div>
               )}
-              <div className="text-sm text-gray-300 mt-2">
+              <div className="text-sm text-gray-600 mt-2">
                 Total: {gameState.discardPile.length} kartu
               </div>
             </div>
 
             {/* Game Info */}
             <div className="text-center">
-              <h3 className="text-white font-medium mb-2">Info Game</h3>
-              <div className="space-y-1 text-sm text-gray-300">
+              <h3 className="text-black font-medium mb-2">Info Game</h3>
+              <div className="space-y-1 text-sm text-gray-600">
                 <div>Status: {gameState.status}</div>
                 <div>Pemain: {gameState.players.length}/4</div>
                 {gameState.winner && (
-                  <div className="text-green-300 font-bold">
+                  <div className="text-black font-bold">
                     🏆 Pemenang: {gameState.players.find(p => p.id === gameState.winner)?.displayName}
                   </div>
                 )}
+                {!gameState.firstPlayerDiscarded && gameState.currentPlayerIndex === 0 && (
+                  <div className="text-orange-600 text-xs font-medium bg-orange-50 px-2 py-1 rounded">
+                    🎯 Pemain pertama wajib membuang 1 kartu (8 → 7)
+                  </div>
+                )}
                 {myPlayer && !myPlayer.hasLaidRun && (
-                  <div className="text-yellow-300 text-xs">
+                  <div className="text-black text-xs">
                     💡 Belum menurunkan Urutan (Run) wajib
                   </div>
                 )}
                 {gameState.lastDrawFromDiscard && (
-                  <div className="text-orange-300 text-xs">
+                  <div className="text-black text-xs">
                     ⚠️ Wajib menurunkan kombinasi
                   </div>
                 )}
@@ -546,22 +633,172 @@ const GameBoard: React.FC = () => {
           </div>
         </div>
 
+        {/* Discarded Cards Display */}
+        {gameState.discardPile.length > 0 && (
+          <div className="bg-white border border-black rounded-lg p-6 mb-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-black font-medium">Kartu yang Dibuang ({gameState.discardPile.length})</h3>
+              <div className="flex space-x-2">
+                {gameState.discardPile.length > 0 && (
+                  <button
+                    onClick={() => setGroupByPlayer(!groupByPlayer)}
+                    className="px-3 py-1 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors text-sm border border-gray-600"
+                  >
+                    {groupByPlayer ? 'Urutkan Waktu' : 'Kelompokkan Pemain'}
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowAllDiscarded(!showAllDiscarded)}
+                  className="px-3 py-1 bg-black text-white rounded hover:bg-gray-800 transition-colors text-sm border border-black"
+                >
+                  {showAllDiscarded ? 'Sembunyikan' : 'Tampilkan Semua'}
+                </button>
+              </div>
+            </div>
+            {groupByPlayer ? (
+              // Group by player view
+              (() => {
+                const cardsToShow = showAllDiscarded
+                  ? gameState.discardPile.slice()
+                  : gameState.discardPile.slice(-20);
+
+                // Group cards by player
+                const cardsByPlayer: Record<string, { card: Card; originalIndex: number }[]> = {};
+                cardsToShow.forEach((card, index) => {
+                  const discardedByPlayer = gameState.discardedBy?.[card.id];
+                  const playerId = discardedByPlayer || 'unknown';
+                  if (!cardsByPlayer[playerId]) {
+                    cardsByPlayer[playerId] = [];
+                  }
+                  cardsByPlayer[playerId].push({ card, originalIndex: gameState.discardPile.length - cardsToShow.length + index });
+                });
+
+                return (
+                  <div className="space-y-4">
+                    {Object.entries(cardsByPlayer).map(([playerId, cards]) => {
+                      const player = gameState.players.find(p => p.id === playerId);
+                      const playerName = player?.displayName || 'Unknown';
+                      const playerColor = player ? getPlayerColor(playerId) : 'bg-gray-200';
+
+                      return (
+                        <div key={playerId} className="border border-black rounded-lg p-3">
+                          <div className={`inline-block px-3 py-1 rounded text-sm font-medium text-white mb-2 ${playerColor}`}>
+                            {playerName} ({cards.length} kartu)
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {cards.reverse().map(({ card, originalIndex }, index) => (
+                              <div key={card.id} className="relative group">
+                                <div
+                                  className="w-12 h-16 bg-white border-2 border-black rounded-lg flex items-center justify-center text-lg font-bold shadow-lg transition-all hover:scale-105"
+                                  style={{
+                                    opacity: showAllDiscarded ? 1 - (index * 0.02) : 1 - (index * 0.05),
+                                  }}
+                                >
+                                  <span className={getCardColor(card)}>
+                                    {getCardDisplay(card)}
+                                  </span>
+                                </div>
+                                <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 bg-black text-white text-xs rounded px-1 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                                  #{originalIndex}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()
+            ) : (
+              // Chronological view
+              <div className="flex flex-wrap gap-2 justify-center">
+                {showAllDiscarded
+                  ? gameState.discardPile.slice().reverse().map((card, index) => {
+                      const discardedByPlayer = gameState.discardedBy?.[card.id];
+                      const playerName = discardedByPlayer
+                        ? gameState.players.find(p => p.id === discardedByPlayer)?.displayName || 'Unknown'
+                        : null;
+
+                      return (
+                        <div key={card.id} className="relative group">
+                          <div
+                            className="w-12 h-16 bg-white border-2 border-black rounded-lg flex items-center justify-center text-lg font-bold shadow-lg transition-all hover:scale-105"
+                            style={{
+                              opacity: 1 - (index * 0.03), // Gradually fade older cards
+                            }}
+                          >
+                            <span className={getCardColor(card)}>
+                              {getCardDisplay(card)}
+                            </span>
+                          </div>
+                          <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 bg-black text-white text-xs rounded px-1 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                            #{gameState.discardPile.length - index}
+                          </div>
+                          {playerName && (
+                            <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                              {playerName}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  : gameState.discardPile.slice(-10).reverse().map((card, index) => {
+                      const discardedByPlayer = gameState.discardedBy?.[card.id];
+                      const playerName = discardedByPlayer
+                        ? gameState.players.find(p => p.id === discardedByPlayer)?.displayName || 'Unknown'
+                        : null;
+
+                      return (
+                        <div key={card.id} className="relative group">
+                          <div
+                            className="w-12 h-16 bg-white border-2 border-black rounded-lg flex items-center justify-center text-lg font-bold shadow-lg transition-all hover:scale-105"
+                            style={{
+                              opacity: 1 - (index * 0.05), // Gradually fade older cards
+                            }}
+                          >
+                            <span className={getCardColor(card)}>
+                              {getCardDisplay(card)}
+                            </span>
+                          </div>
+                          <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 bg-black text-white text-xs rounded px-1 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                            #{gameState.discardPile.length - index}
+                          </div>
+                          {playerName && (
+                            <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                              {playerName}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                }
+              </div>
+            )}
+            {gameState.discardPile.length > (groupByPlayer ? 20 : 10) && !showAllDiscarded && (
+              <div className="text-center mt-2 text-sm text-gray-600">
+                Menampilkan {groupByPlayer ? '20' : '10'} kartu terakhir dari {gameState.discardPile.length} kartu total
+              </div>
+            )}
+          </div>
+        )}
+
         {/* My Hand */}
         {myPlayer && (
-          <div className="bg-white/10 backdrop-blur-lg rounded-lg p-6">
+          <div className="bg-white border border-black rounded-lg p-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-white font-medium">Kartu Saya ({myPlayer.hand.length})</h3>
+              <h3 className="text-black font-medium">Kartu Saya ({myPlayer.hand.length})</h3>
               <div className="flex space-x-2">
                 {selectedCards.length >= 3 && isMyTurn && (
                   <button
                     onClick={handleMeldCards}
-                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                    className="px-4 py-2 bg-black text-white rounded hover:bg-gray-800 transition-colors border border-black"
                   >
                     Buat Meld ({selectedCards.length})
                   </button>
                 )}
                 {isMyTurn && (
-                  <span className="text-yellow-300">Ini giliran Anda!</span>
+                  <span className="text-black font-medium">Ini giliran Anda!</span>
                 )}
               </div>
             </div>
@@ -572,10 +809,10 @@ const GameBoard: React.FC = () => {
                   key={card.id}
                   onClick={() => handleCardSelect(card.id)}
                   disabled={!isMyTurn}
-                  className={`w-12 h-16 rounded-lg flex items-center justify-center text-lg font-bold transition-all ${
+                  className={`w-12 h-16 rounded-lg flex items-center justify-center text-lg font-bold transition-all border ${
                     selectedCards.includes(card.id)
-                      ? 'bg-yellow-500 scale-110 shadow-lg'
-                      : 'bg-white hover:scale-105'
+                      ? 'bg-black text-white border-black scale-110 shadow-lg'
+                      : 'bg-white text-black border-gray-400 hover:scale-105'
                   } ${!isMyTurn ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                 >
                   <span className={getCardColor(card)}>
@@ -587,32 +824,58 @@ const GameBoard: React.FC = () => {
 
             {myPlayer.hand.length > 0 && isMyTurn && (
               <div className="mt-4 text-center">
-                {!myPlayer.hasLaidRun && (
-                  <p className="text-sm text-yellow-300 mb-2">
+                {/* Special rules for first player */}
+                {!gameState.firstPlayerDiscarded && gameState.currentPlayerIndex === 0 && myPlayer.hand.length === 8 && (
+                  <div className="mb-3 p-2 bg-orange-50 border border-orange-200 rounded">
+                    <p className="text-sm text-orange-700 font-medium">
+                      🎯 Langkah pertama: Wajib membuang 1 kartu
+                    </p>
+                    <p className="text-xs text-orange-600 mt-1">
+                      Pilih 1 kartu untuk dibuang (8 → 7 kartu)
+                    </p>
+                  </div>
+                )}
+
+                {/* Regular game rules */}
+                {!gameState.firstPlayerDiscarded && gameState.currentPlayerIndex !== 0 && (
+                  <p className="text-sm text-gray-600 mb-2">
+                    Menunggu pemain pertama membuang kartu...
+                  </p>
+                )}
+
+                {gameState.firstPlayerDiscarded && !myPlayer.hasLaidRun && (
+                  <p className="text-sm text-black mb-2">
                     💡 Wajib menurunkan Urutan (Run) terlebih dahulu
                   </p>
                 )}
                 {gameState.lastDrawFromDiscard && (
-                  <p className="text-sm text-orange-300 mb-2">
+                  <p className="text-sm text-black mb-2">
                     ⚠️ Wajib menurunkan kombinasi setelah ambil dari discard pile
                   </p>
                 )}
-                <p className="text-sm text-gray-300 mb-2">
-                  Pilih kartu untuk dibuang atau buat meld (minimal 3 kartu)
-                </p>
+
+                {gameState.firstPlayerDiscarded && (
+                  <p className="text-sm text-gray-600 mb-2">
+                    Pilih kartu untuk dibuang atau buat meld (minimal 3 kartu)
+                  </p>
+                )}
+
                 <div className="flex justify-center space-x-2">
-                  {selectedCards.length === 1 && !gameState.lastDrawFromDiscard && (
+                  {/* Only show discard button if it's allowed */}
+                  {selectedCards.length === 1 && !gameState.lastDrawFromDiscard &&
+                   (gameState.firstPlayerDiscarded ||
+                    (!gameState.firstPlayerDiscarded && gameState.currentPlayerIndex === 0 && myPlayer.hand.length === 8)) && (
                     <button
                       onClick={() => handleDiscardCard(selectedCards[0])}
-                      className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                      className="px-4 py-2 bg-black text-white rounded hover:bg-gray-800 transition-colors border border-black"
                     >
-                      Buang Kartu
+                      {gameState.currentPlayerIndex === 0 && myPlayer.hand.length === 8 ? 'Buang Kartu Pertama' : 'Buang Kartu'}
                     </button>
                   )}
-                  {selectedCards.length >= 3 && (
+                  {selectedCards.length >= 3 && gameState.firstPlayerDiscarded && (
                     <button
                       onClick={handleMeldCards}
-                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                      className="px-4 py-2 bg-black text-white rounded hover:bg-gray-800 transition-colors border border-black"
                     >
                       Buat Meld ({selectedCards.length})
                     </button>
@@ -620,14 +883,14 @@ const GameBoard: React.FC = () => {
                   {selectedCards.length > 0 && (
                     <button
                       onClick={() => setSelectedCards([])}
-                      className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
+                      className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors border border-gray-600"
                     >
                       Batal Pilih
                     </button>
                   )}
                 </div>
                 {canPlayerWin(myPlayer) && (
-                  <div className="mt-2 text-green-300 text-sm font-bold">
+                  <div className="mt-2 text-black text-sm font-bold">
                     🎯 Siap Memukul! Tinggal 1 kartu lagi
                   </div>
                 )}

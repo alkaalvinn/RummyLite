@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { subscribeToRoom, updatePlayerReady } from '../../services/firebase';
-import { initializeGame } from '../../lib/rummyEngine';
+import { Game } from '../../game/Game';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 
@@ -90,14 +90,15 @@ const Room: React.FC = () => {
       // Initialize game state
       const playerIds = roomData.players.map(p => p.id);
       const displayNames = roomData.players.map(p => p.displayName);
-      const gameState = initializeGame(playerIds, displayNames);
+      const game = new Game(playerIds, displayNames);
+      game.start();
 
       // Update room with game state
       const roomRef = doc(db, 'rooms', roomId);
       await updateDoc(roomRef, {
         status: 'playing',
         gameStarted: true,
-        gameState: gameState,
+        gameState: game.getData(),
         startedAt: new Date().toISOString()
       });
 
@@ -126,16 +127,16 @@ const Room: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-white text-xl">Loading room...</div>
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="text-black text-xl">Loading room...</div>
       </div>
     );
   }
 
   if (!roomData) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-white text-xl">Room tidak ditemukan</div>
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="text-black text-xl">Room tidak ditemukan</div>
       </div>
     );
   }
@@ -146,15 +147,15 @@ const Room: React.FC = () => {
   const canStartGame = isHost && allReady && roomData.players.length === 4;
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col bg-white">
       {/* Header */}
-      <header className="bg-black/20 backdrop-blur-sm border-b border-white/10">
+      <header className="bg-white border-b border-black">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
-            <h1 className="text-2xl font-bold text-white">Room: {roomId}</h1>
+            <h1 className="text-2xl font-bold text-black">Room: {roomId}</h1>
             <button
               onClick={handleLeaveRoom}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
             >
               Keluar Room
             </button>
@@ -166,25 +167,25 @@ const Room: React.FC = () => {
       <main className="flex-1 flex items-center justify-center px-4 py-8">
         <div className="max-w-2xl w-full space-y-6">
           {/* Room Code Display */}
-          <div className="bg-white/10 backdrop-blur-lg rounded-lg p-6 text-center">
-            <h2 className="text-lg text-gray-300 mb-2">Kode Room</h2>
+          <div className="bg-white border border-black rounded-lg p-6 text-center">
+            <h2 className="text-lg text-black mb-2">Kode Room</h2>
             <div className="flex items-center justify-center space-x-4">
-              <span className="text-3xl font-mono font-bold text-white">{roomId}</span>
+              <span className="text-3xl font-mono font-bold text-black">{roomId}</span>
               <button
                 onClick={copyRoomCode}
-                className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm"
+                className="px-3 py-1 bg-black text-white rounded hover:bg-gray-800 transition-colors text-sm"
               >
                 Salin
               </button>
             </div>
-            <p className="text-sm text-gray-400 mt-2">
+            <p className="text-sm text-gray-600 mt-2">
               Bagikan kode ini kepada teman untuk bergabung
             </p>
           </div>
 
           {/* Players List */}
-          <div className="bg-white/10 backdrop-blur-lg rounded-lg p-6">
-            <h3 className="text-xl font-semibold text-white mb-4">
+          <div className="bg-white border border-black rounded-lg p-6">
+            <h3 className="text-xl font-semibold text-black mb-4">
               Pemain ({roomData.players.length}/4)
             </h3>
 
@@ -192,31 +193,47 @@ const Room: React.FC = () => {
               {roomData.players.map((player, index) => (
                 <div
                   key={player.id}
-                  className={`flex items-center justify-between p-3 rounded-lg ${
+                  className={`flex items-center justify-between p-3 rounded-lg border ${
                     player.id === user?.uid
-                      ? 'bg-green-600/20 border border-green-500'
-                      : 'bg-white/5'
+                      ? 'bg-black text-white border-black'
+                      : 'bg-white border-gray-300'
                   }`}
                 >
                   <div className="flex items-center space-x-3">
-                    <div className="w-8 h-8 bg-gradient-to-br from-green-400 to-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-semibold text-sm ${
+                      player.id === user?.uid
+                        ? 'bg-white text-black'
+                        : 'bg-black text-white'
+                    }`}>
                       {player.displayName.charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <div className="text-white font-medium">
+                      <div className={`font-medium ${
+                        player.id === user?.uid ? 'text-white' : 'text-black'
+                      }`}>
                         {player.displayName}
                         {player.id === roomData.hostId && (
-                          <span className="ml-2 px-2 py-1 bg-yellow-600/30 text-yellow-300 text-xs rounded">
+                          <span className={`ml-2 px-2 py-1 text-xs rounded border ${
+                            player.id === user?.uid
+                              ? 'bg-white text-black border-white'
+                              : 'bg-black text-white border-black'
+                          }`}>
                             Host
                           </span>
                         )}
                         {player.id === user?.uid && (
-                          <span className="ml-2 px-2 py-1 bg-blue-600/30 text-blue-300 text-xs rounded">
+                          <span className={`ml-2 px-2 py-1 text-xs rounded border ${
+                            player.id === user?.uid
+                              ? 'bg-white text-black border-white'
+                              : 'bg-gray-200 text-black border-gray-400'
+                          }`}>
                             Anda
                           </span>
                         )}
                       </div>
-                      <div className="text-sm text-gray-400">
+                      <div className={`text-sm ${
+                        player.id === user?.uid ? 'text-gray-300' : 'text-gray-600'
+                      }`}>
                         {player.connected ? 'Online' : 'Offline'}
                       </div>
                     </div>
@@ -224,11 +241,19 @@ const Room: React.FC = () => {
 
                   <div className="flex items-center space-x-2">
                     {player.ready ? (
-                      <span className="px-3 py-1 bg-green-600/30 text-green-300 rounded-full text-sm">
+                      <span className={`px-3 py-1 rounded-full text-sm border ${
+                        player.id === user?.uid
+                          ? 'bg-white text-black border-white'
+                          : 'bg-black text-white border-black'
+                      }`}>
                         Ready
                       </span>
                     ) : (
-                      <span className="px-3 py-1 bg-gray-600/30 text-gray-300 rounded-full text-sm">
+                      <span className={`px-3 py-1 rounded-full text-sm border ${
+                        player.id === user?.uid
+                          ? 'bg-gray-600 text-white border-gray-600'
+                          : 'bg-gray-200 text-black border-gray-400'
+                      }`}>
                         Not Ready
                       </span>
                     )}
@@ -237,7 +262,7 @@ const Room: React.FC = () => {
               ))}
 
               {roomData.players.length < 4 && (
-                <div className="border-2 border-dashed border-gray-500 rounded-lg p-4 text-center text-gray-400">
+                <div className="border-2 border-dashed border-gray-400 rounded-lg p-4 text-center text-gray-600">
                   <div className="text-sm">
                     Menunggu {4 - roomData.players.length} pemain lagi...
                   </div>
@@ -249,7 +274,7 @@ const Room: React.FC = () => {
           {/* Actions */}
           <div className="space-y-4">
             {error && (
-              <div className="bg-red-500/20 border border-red-500 text-red-200 px-4 py-3 rounded-lg text-sm">
+              <div className="bg-black text-white px-4 py-3 rounded-lg text-sm border border-black">
                 {error}
               </div>
             )}
@@ -259,10 +284,10 @@ const Room: React.FC = () => {
                 <button
                   onClick={handleReadyToggle}
                   disabled={roomData.gameStarted}
-                  className={`flex-1 py-3 px-4 rounded-lg font-medium transition-colors ${
+                  className={`flex-1 py-3 px-4 rounded-lg font-medium transition-colors border ${
                     currentPlayer.ready
-                      ? 'bg-orange-600 hover:bg-orange-700 text-white'
-                      : 'bg-green-600 hover:bg-green-700 text-white'
+                      ? 'bg-gray-600 hover:bg-gray-700 text-white border-gray-600'
+                      : 'bg-black hover:bg-gray-800 text-white border-black'
                   } disabled:opacity-50`}
                 >
                   {currentPlayer.ready ? 'Cancel Ready' : 'Ready'}
@@ -273,7 +298,7 @@ const Room: React.FC = () => {
                 <button
                   onClick={handleStartGame}
                   disabled={startingGame}
-                  className="flex-1 py-3 px-4 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 transition-colors"
+                  className="flex-1 py-3 px-4 bg-black text-white font-medium rounded-lg hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black disabled:opacity-50 transition-colors border border-black"
                 >
                   {startingGame ? 'Memulai Game...' : 'Mulai Game'}
                 </button>
@@ -281,22 +306,22 @@ const Room: React.FC = () => {
             </div>
 
             {!isHost && (
-              <div className="text-center text-sm text-gray-400">
+              <div className="text-center text-sm text-gray-600">
                 Menunggu host untuk memulai game...
               </div>
             )}
 
             {isHost && roomData.players.length < 4 && (
-              <div className="text-center text-sm text-yellow-400">
+              <div className="text-center text-sm text-black font-medium">
                 Game membutuhkan tepat 4 pemain untuk dimulai
               </div>
             )}
           </div>
 
           {/* Game Rules Preview */}
-          <div className="bg-white/10 backdrop-blur-lg rounded-lg p-6">
-            <h4 className="text-lg font-semibold text-white mb-3">Aturan Game Rummy Spesial</h4>
-            <ul className="text-sm text-gray-300 space-y-2">
+          <div className="bg-white border border-black rounded-lg p-6">
+            <h4 className="text-lg font-semibold text-black mb-3">Aturan Game Rummy Spesial</h4>
+            <ul className="text-sm text-gray-600 space-y-2">
               <li>• Game dimainkan oleh tepat 4 pemain</li>
               <li>• Setiap pemain mendapat 7 kartu di awal</li>
               <li>• 1 kartu acak menjadi referensi, 3 kartu kembarannya menjadi Joker</li>

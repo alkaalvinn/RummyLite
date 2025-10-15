@@ -7,8 +7,8 @@ export default {
   theme: {
     extend: {
       colors: {
-        'card-red': '#ef4444',
-        'card-black': '#1f2937',
+        'card-black': '#000000',
+        'card-white': '#ffffff',
       },
       animation: {
         'bounce-slow': 'bounce 2s infinite',

@@ -1,106 +1,86 @@
-Product Requirements Document (PRD) - "Rummy Spesial"
-Item	Deskripsi
-Nama Produk	Remi Renjana
-Versi Dokumen	1.1 (Diperbarui)
-Tanggal Pembuatan	10 Oktober 2025
-Pemilik Produk	(Nama Anda/Tim Produk)
-Status	Final Draf
+-----
 
-Export to Sheets
-1. Tujuan dan Target Pengguna
-Tujuan utama proyek ini adalah mengembangkan game kartu digital berbasis Remi dengan serangkaian aturan unik, berfokus pada pengalaman bermain 4 pemain yang strategis. Target pengguna adalah penggemar game kartu yang mencari variasi aturan Remi yang kompetitif.
+# Product Requirements Document (PRD) - "Remi Renjana"
 
-2. Fitur & Fungsionalitas Inti
-2.1. Pengaturan Permainan (Game Setup)
-ID	Fitur	Deskripsi Kebutuhan
-GMS-001	Jumlah Pemain	Permainan dimainkan oleh tepat 4 orang.
-GMS-002	Distribusi Kartu	Setiap pemain dibagikan 7 kartu acak dari satu set kartu remi standar (52 kartu).
-GMS-003	Penentuan Joker Utama	Satu kartu diacak dan diambil (misal: 7♥). Tiga kartu kembarannya (7♠, 7♦, 7♣) otomatis menjadi Kartu Joker. Kartu penentu (7♥) diletakkan terpisah sebagai pengingat dan tidak digunakan dalam deck.
+## Pembaruan Spesifikasi Mekanisme Bermain
 
-Export to Sheets
-2.2. Mekanisme Bermain (Gameplay Mechanics)
-ID	Fitur	Deskripsi Kebutuhan
-GMM-001	Struktur Giliran	Pemain bergiliran untuk mengambil dan membuang kartu.
-GMM-002	Opsi Mengambil Kartu	Pada gilirannya, pemain dapat memilih: (A) Mengambil 1-3 kartu terakhir yang dibuang di tumpukan buangan. ATAU (B) Mengambil 1 kartu dari sisa deck (tumpukan tertutup).
-GMM-003	Wajib Menurunkan Kartu	Jika pemain mengambil dari tumpukan buangan (Opsi A), dia wajib segera menurunkan kombinasi yang cocok (Rul-001 atau Rul-002) pada putaran yang sama.
-GMM-004	Membuang Kartu	Setelah mengambil kartu, pemain wajib membuang 1 kartu ke tumpukan buangan untuk mengakhiri gilirannya.
-GMM-005	Kartu Buangan 'Memukul'	Saat pemain "Memukul," kartu buangan terakhirnya (GMM-004) dapat menjadi kartu pelengkap untuk kombinasi yang diturunkan.
-GMM-006	Fungsi Kartu Joker	Joker adalah kartu spesial yang bisa menggantikan kartu apa pun untuk melengkapi urutan atau set.
+| Item | Deskripsi |
+| :--- | :--- |
+| **Nama Produk** | **Remi Renjana** |
+| **Versi Dokumen** | **1.2 (Pembaruan Mekanisme)** |
+| **Tanggal Pembuatan** | 15 Oktober 2025 |
+| **Pemilik Produk** | (Nama Anda/Tim Produk) |
+| **Status** | Final Draf |
 
-Export to Sheets
-3. Aturan Kombinasi dan Kemenangan
-3.1. Aturan Kombinasi Kartu (Melds/Lays)
-ID	Aturan	Deskripsi Kebutuhan
-Rul-001	Urutan Dasar (Wajib Pertama)	Kombinasi pertama yang wajib diturunkan adalah Urutan (Run), yaitu kartu berurutan dengan simbol yang sama. Maksimal Urutan adalah 4 kartu.
-Jenis Urutan: 1. 2-10 (misal: 7♦, 8♦, 9♦, 10♦); 2. J, Q, K (misal: J♣, Q♣, K♣); 3. 4 Kartu Ace (Set Ace diperlakukan sebagai Urutan wajib).
-Rul-002	Set/Rill (Setelah Urutan)	Setelah Rul-001 terpenuhi, pemain boleh menurunkan kombinasi Set/Rill, yaitu kartu dengan angka/huruf yang sama dan jumlah 3 atau 4 kartu (misal: 3♥, 3♦, 3♠). Urutan juga tetap boleh diturunkan.
-Rul-003	Penurunan	Kartu yang dikombinasikan harus dijatuhkan ke meja dan ditunjukkan ke semua pemain.
+-----
 
-Export to Sheets
-3.2. Aturan Akhir Game & Poin Kemenangan (Memukul)
-ID	Aturan	Deskripsi Kebutuhan
-Rul-004	Kondisi Memukul	Game berakhir jika ada pemain yang berhasil menyisakan 1 kartu di tangan (sebagai Kartu Pemukul).
-Rul-005	Nilai Kartu Pemukul	Nilai Kartu Pemukul (kartu sisa 1 di tangan) menjadi poin kemenangan pemain tersebut:
-- Kartu 2-10: 50 Poin
-- Kartu J, Q, K: 100 Poin
-- Kartu ACE: 150 Poin
-- Kartu JOKER: 250 Poin
+## 2\. Fitur & Fungsionalitas Inti
 
-Export to Sheets
-4. Perhitungan Poin Akhir (Kartu Habis)
-Jika game berakhir karena kartu deck habis (tidak ada yang memukul), poin dihitung berdasarkan kartu yang tersisa di tangan pemain dan apakah mereka telah memenuhi syarat kombinasi.
+### 2.1. Pengaturan Permainan (Game Setup)
 
-4.1. Nilai Dasar Kartu (Untuk Kartu Sisa di Tangan)
-ID	Kartu	Nilai Poin Dasar
-Rul-007	Kartu 2-10	5 Poin
-Kartu J, Q, K	10 Poin
-Kartu ACE	15 Poin
+*Penambahan detail untuk Giliran Pertama.*
 
-Export to Sheets
-4.2. Aturan Khusus Poin Joker
-ID	Aturan	Deskripsi Kebutuhan
-Rul-007A	Poin Joker Terpakai	Jika Joker digunakan dalam kombinasi yang sudah diturunkan, nilainya dihitung sesuai kartu yang digantikan (misal: ganti 7/5 Poin, ganti King/10 Poin, ganti Ace/15 Poin).
-Rul-007B	Poin Joker Tidak Terpakai	Jika Joker tersisa di tangan dan tidak melengkapi kombinasi, Joker tersebut bernilai MINUS 25 POIN.
+| ID | Fitur | Deskripsi Kebutuhan |
+| :--- | :--- | :--- |
+| **GMS-001** | Jumlah Pemain | Permainan dimainkan oleh tepat 4 orang. |
+| **GMS-002** | Distribusi Kartu (Awal) | Setiap pemain dibagikan **7 kartu acak** dari satu set kartu remi standar (52 kartu). |
+| **GMS-002A** | Kartu Awal Deck Terbuka | Setelah distribusi (GMS-002), satu kartu ditarik dari sisa deck dan diletakkan terbuka untuk memulai **Tumpukan Buangan** (*Discard Pile*). |
+| **GMS-002B** | Giliran Pertama | Pemain yang mendapat giliran pertama (misalnya, ditentukan secara acak) akan memulai gilirannya dengan **8 kartu** di tangan (7 kartu awal + kartu dari GMS-002A). Pemain ini **WAJIB** membuang 1 kartu untuk mengakhiri gilirannya. |
+| **GMS-003** | Penentuan Joker Utama | Satu kartu diacak dan diambil (misal: 7♥). Tiga kartu kembarannya (7♠, 7♦, 7♣) otomatis menjadi **Kartu Joker**. Kartu penentu (7♥) diletakkan terpisah sebagai pengingat dan tidak digunakan dalam deck. |
 
-Export to Sheets
-4.3. Perhitungan Poin Akhir (Plus atau Minus)
-Kondisi Pemain	Syarat Pemenuhan Kombinasi	Hasil Poin
-POIN POSITIF (Menang)	Rul-001 (Urutan) DAN Rul-002 (Set/Rill) terpenuhi semua.	Total nilai kartu sisa di tangan (Rul-007 + Rul-007A) dihitung sebagai Poin PLUS.
-POIN NEGATIF (Kalah) 1	TIDAK ADA kombinasi yang diturunkan (Rul-001 dan Rul-002 tidak terpenuhi).	Total nilai semua kartu di tangan (termasuk penalti Joker Rul-007B) dihitung sebagai Poin MINUS.
-POIN NEGATIF (Kalah) 2	Hanya Rul-001 (Urutan) terpenuhi, Rul-002 (Set/Rill) tidak terpenuhi.	Poin dari kartu yang tidak masuk kombinasi (di tangan) akan dikumulatifkan nilainya, dan totalnya dihitung sebagai Poin MINUS (termasuk penalti Joker Rul-007B).
+-----
 
-5. Kebutuhan Desain (User Flow and Design)
-5.1. Alur Dasar Pengguna (Basic User Flow)
-Pemain masuk ke game (Lobby).
+### 2.2. Mekanisme Bermain (Gameplay Mechanics)
 
-Membuat atau bergabung dengan Ruangan 4-Pemain.
+*Mekanisme Giliran diperjelas.*
 
-Permainan dimulai, kartu dibagikan (GMS-002), dan Kartu Penentu Joker ditampilkan (GMS-003).
+| ID | Fitur | Deskripsi Kebutuhan |
+| :--- | :--- | :--- |
+| **GMM-001** | Struktur Giliran | Pemain bergiliran searah jarum jam untuk mengambil, menurunkan (opsional), dan membuang kartu. |
+| **GMM-002** | Opsi Mengambil Kartu (Reguler) | Pada awal gilirannya, pemain harus memilih SATU dari dua opsi: **(A) Mengambil 1-3 kartu terakhir yang dibuang di Tumpukan Buangan.** ATAU **(B) Mengambil 1 kartu dari sisa Deck** (Tumpukan Tertutup). |
+| **GMM-002A**| Aturan Mengambil dari Buangan | Jika pemain mengambil lebih dari 1 kartu dari Tumpukan Buangan (Opsi A):<br>1. Hanya kartu paling atas/terakhir yang dibutuhkan dan langsung masuk tangan.<br>2. Kartu-kartu di bawahnya yang ikut diambil **WAJIB** segera diturunkan ke meja sebagai bagian dari kombinasi baru pada putaran yang sama (Lihat GMM-003). |
+| **GMM-003** | Wajib Menurunkan Kartu (Jika Mengambil) | Jika pemain mengambil dari Tumpukan Buangan (Opsi A), pemain **WAJIB** segera menurunkan kombinasi yang cocok (*Melds*) dengan menggunakan kartu yang diambil (Rul-001 atau Rul-002) pada putaran yang sama. **Jika pemain hanya mengambil 1 kartu dari Deck (Opsi B), penurunan kartu adalah OPSIONAL.** |
+| **GMM-004** | Membuang Kartu | Setelah mengambil kartu dan menyelesaikan aksi penurunan kartu (jika ada), pemain **WAJIB** membuang tepat **1 kartu** ke Tumpukan Buangan untuk mengakhiri gilirannya. |
+| **GMM-005** | Kartu Buangan 'Memukul' | Saat pemain "Memukul" (Game End), kartu buangan terakhirnya (GMM-004) dapat menjadi kartu pelengkap untuk kombinasi terakhir yang diturunkan, menyisakan 1 kartu di tangan sebagai Kartu Pemukul (Rul-004). |
+| **GMM-006** | Fungsi Kartu Joker | Joker adalah kartu spesial yang bisa menggantikan kartu apa pun untuk melengkapi urutan atau set. |
 
-Pemain bergiliran mengambil/membuang kartu (GMM-002, GMM-004).
+-----
 
-Pemain menurunkan kombinasi (Rul-001, Rul-002). (Penting: UI harus memberikan feedback visual yang jelas bahwa Rul-001 harus diturunkan sebelum Rul-002).
+## 5\. Kebutuhan Desain (User Flow and Design)
 
-Permainan berakhir dengan Memukul atau Kartu Habis (Rul-004, Rul-006).
+### 5.1. Alur Dasar Pengguna (Basic User Flow)
 
-Perhitungan dan tampilan Skor (Rul-005, Rul-008).
+*Alur diubah agar lebih mencerminkan logika giliran Rummy.*
 
-Kembali ke Lobby/Mulai Putaran Baru.
+1.  Pemain masuk ke game (Lobby).
+2.  Membuat atau bergabung dengan Ruangan 4-Pemain.
+3.  Permainan dimulai:
+      * Kartu dibagikan (GMS-002).
+      * Kartu Awal Deck Terbuka dibuat (GMS-002A).
+      * Kartu Penentu Joker ditampilkan (GMS-003).
+4.  **Giliran Pertama:** Pemain 1 memulai dengan 8 kartu, **WAJIB** membuang 1 kartu (GMS-002B).
+5.  **Giliran Reguler (Pemain 2, 3, 4, dan seterusnya):**
+      * Pemain dihadapkan pada pilihan: **Mengambil dari Buangan (Opsi A) atau Mengambil dari Deck (Opsi B)** (GMM-002).
+      * **Jika Opsi A dipilih:** Pemain mengambil kartu dan **WAJIB** menurunkan kombinasi yang cocok (GMM-003).
+      * **Jika Opsi B dipilih:** Pemain mengambil kartu, penurunan kombinasi **OPSIONAL**.
+      * Pemain **membuang 1 kartu** untuk mengakhiri giliran (GMM-004).
+6.  Pemain menurunkan kombinasi (Rul-001, Rul-002). (Penting: UI harus memberikan feedback visual yang jelas bahwa Rul-001 harus diturunkan sebelum Rul-002).
+7.  Permainan berakhir dengan **Memukul** (Rul-004) atau **Kartu Deck Habis** (Rul-006).
+8.  Perhitungan dan tampilan Skor (Rul-005, Rul-008).
+9.  Kembali ke Lobby/Mulai Putaran Baru.
 
-5.2. Kebutuhan Antarmuka Pengguna (UI Requirements)
-Tampilan kartu di tangan yang jelas, dengan kemampuan sorting (sortir) berdasarkan angka/jenis.
+-----
 
-Area Discard Pile (Tumpukan Buangan) yang menampilkan 3 kartu terakhir yang dibuang dengan jelas.
+### 5.2. Kebutuhan Antarmuka Pengguna (UI Requirements)
 
-Kartu Penentu Joker harus ditampilkan secara permanen di area bermain.
+*Penambahan kebutuhan visual untuk pilihan pengambilan kartu.*
 
-Tombol/aksi yang jelas untuk: Mengambil dari Buangan, Mengambil dari Deck, Menurunkan Kartu, dan Membuang Kartu.
-
-6. Pertimbangan Teknis (Technical Considerations)
-Platform: (Misal: Aplikasi Mobile iOS/Android, Web/Desktop)
-
-Teknologi: (Misal: Unity, React Native, dsb.)
-
-Backend: Diperlukan server untuk menangani multiplayer real-time dan validasi aturan main.
-
-Algoritma: Dibutuhkan algoritma shuffling yang adil dan algoritma validasi kombinasi kartu (Rul-001 & Rul-002), serta penentuan Joker.
+| ID | Kebutuhan | Deskripsi Tambahan |
+| :--- | :--- | :--- |
+| **UI-001** | Tampilan Kartu Tangan | Tampilan kartu di tangan yang jelas, dengan kemampuan sorting (sortir) berdasarkan angka/jenis. |
+| **UI-002** | Area Tumpukan Buangan | Area *Discard Pile* yang menampilkan 3 kartu terakhir yang dibuang dengan jelas (untuk memfasilitasi pilihan pengambilan). **Kartu paling atas harus sangat jelas untuk diambil sebagai Opsi A.** |
+| **UI-003** | Kartu Penentu Joker | Kartu Penentu Joker harus ditampilkan secara permanen di area bermain. |
+| **UI-004** | Aksi Giliran | Tombol/aksi yang jelas: **Mengambil dari Buangan**, **Mengambil dari Deck**, **Menurunkan Kartu (*Meld*)**, dan **Membuang Kartu (*Discard*)**. |
+| **UI-004A**| Indikator Wajib | UI harus menampilkan **Pilihan Wajib** (Mengambil dari Deck atau Buangan) di awal setiap giliran (kecuali giliran pertama). |
+| **UI-004B**| Indikator *Meld* Wajib | Setelah pemain mengambil dari Tumpukan Buangan, UI harus memberikan **indikasi visual yang kuat** bahwa tindakan penurunan kartu (*Meld*) **wajib** dilakukan segera, sebelum pembuangan kartu. |
+| **UI-005** | Validasi Kombinasi | Sistem harus memberikan *real-time feedback* kepada pemain tentang validitas kombinasi yang sedang mereka siapkan untuk diturunkan (memastikan Rul-001 vs Rul-002 terpenuhi). |

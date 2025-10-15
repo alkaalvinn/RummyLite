@@ -42,6 +42,7 @@ export interface GameState {
   direction: 1 | -1; // For multiplayer turn order
   winner?: string;
   lastDrawFromDiscard?: boolean; // Track if last draw was from discard pile
+  firstPlayerDiscarded?: boolean; // Track if first player has made their mandatory discard
   lastAction?: {
     type: 'draw' | 'discard' | 'meld';
     playerId: string;
@@ -49,6 +50,7 @@ export interface GameState {
     meldId?: string;
     drawCount?: number; // Number of cards drawn from discard pile
   };
+  discardedBy?: Record<string, string>; // Track who discarded each card (cardId -> playerId)
 }
 
 // Card values for scoring (Rul-007 - basic values for cards in hand)
@@ -127,7 +129,7 @@ export const determineJokerCards = (deck: Card[]): {
 };
 
 // Deal cards to players
-export const dealCards = (deck: Card[], playerCount: number, cardsPerPlayer: number = 7): {
+export const dealCards = (deck: Card[], playerCount: number, cardsPerPlayer: number = 8): {
   deck: Card[];
   playersHands: Card[][];
 } => {
@@ -274,21 +276,34 @@ export const validateAction = (
 
   switch (action) {
     case 'draw':
-      // GMM-002: Can draw 1-3 cards from discard pile OR 1 from deck
+      // Check if first player needs to discard first (rule: first player starts with 8 cards, must discard to 7)
+      if (!gameState.firstPlayerDiscarded && gameState.currentPlayerIndex === 0 && currentPlayer.hand.length === 8) {
+        return { valid: false, error: 'Pemain pertama wajib membuang 1 kartu terlebih dahulu' };
+      }
+
       if (drawFromDiscardCount) {
-        // Drawing from discard pile
-        if (drawFromDiscardCount < 1 || drawFromDiscardCount > 3) {
-          return { valid: false, error: 'Hanya bisa mengambil 1-3 kartu dari discard pile' };
+        // Drawing from discard pile - check if player has matching pairs
+        const { matchingCards } = hasMultipleMatchingCards(currentPlayer, gameState.discardPile);
+
+        if (matchingCards.length === 0) {
+          return { valid: false, error: 'Tidak ada pasangan kartu yang cocok di discard pile. Ambil dari deck.' };
         }
+
+        if (drawFromDiscardCount !== matchingCards.length) {
+          return { valid: false, error: `Harus mengambil semua kartu yang cocok (${matchingCards.length} kartu)` };
+        }
+
         if (gameState.discardPile.length < drawFromDiscardCount) {
           return { valid: false, error: 'Tidak cukup kartu di discard pile' };
         }
-        // GMM-003: Must meld immediately after drawing from discard pile
-        if (!meldCards || meldCards.length === 0) {
-          return { valid: false, error: 'Wajib menurunkan kombinasi setelah mengambil dari discard pile' };
-        }
       } else {
-        // Drawing from deck
+        // Drawing from deck - check if player has matching pairs in discard pile
+        const { matchingCards } = hasMultipleMatchingCards(currentPlayer, gameState.discardPile);
+
+        if (matchingCards.length > 0) {
+          return { valid: false, error: `Ada ${matchingCards.length} kartu di discard pile yang cocok. Ambil dari discard pile terlebih dahulu.` };
+        }
+
         if (gameState.deck.length === 0) {
           return { valid: false, error: 'Deck kosong' };
         }
@@ -303,6 +318,12 @@ export const validateAction = (
       const cardInHand = currentPlayer.hand.find(card => card.id === cardId);
       if (!cardInHand) {
         return { valid: false, error: 'Kartu tidak ada di tangan' };
+      }
+
+      // Check if it's the first player's first turn (must discard from 8 to 7 cards)
+      if (!gameState.firstPlayerDiscarded && gameState.currentPlayerIndex === 0 && currentPlayer.hand.length === 8) {
+        // This is the mandatory first discard, allow any card
+        break;
       }
       break;
 
@@ -350,6 +371,51 @@ export const canPlayerWin = (player: Player): boolean => {
   return player.hand.length === 1 && player.melds.length > 0 && player.hasLaidRun;
 };
 
+// Check if player has a matching pair with the top card of discard pile
+export const hasMatchingPair = (player: Player, topCard: Card): boolean => {
+  if (!topCard) return false;
+
+  return player.hand.some(card => {
+    // Check for same rank (different suits for pairs)
+    if (card.rank === topCard.rank && card.suit !== topCard.suit) {
+      return true;
+    }
+
+    // Check for same suit (sequence)
+    if (card.suit === topCard.suit) {
+      const cardValue = card.value;
+      const topCardValue = topCard.value;
+      // Check if they are consecutive
+      return Math.abs(cardValue - topCardValue) === 1;
+    }
+
+    return false;
+  });
+};
+
+// Check if player has multiple matching cards in discard pile
+export const hasMultipleMatchingCards = (player: Player, discardPile: Card[]): { matchingCards: Card[], canTakeAll: boolean } => {
+  if (discardPile.length === 0) return { matchingCards: [], canTakeAll: false };
+
+  const matchingCards: Card[] = [];
+
+  // Check from top to bottom until we find a non-matching card
+  for (let i = discardPile.length - 1; i >= 0; i--) {
+    const card = discardPile[i];
+
+    if (hasMatchingPair(player, card)) {
+      matchingCards.unshift(card); // Add to beginning to maintain order
+    } else {
+      break; // Stop at first non-matching card
+    }
+  }
+
+  // Can take all if we have matching pairs for all cards in the sequence
+  const canTakeAll = matchingCards.length > 0;
+
+  return { matchingCards, canTakeAll };
+};
+
 // Check if player has won (0 cards left after discard)
 export const hasPlayerWon = (player: Player): boolean => {
   return player.hand.length === 0 && player.melds.length > 0;
@@ -390,7 +456,7 @@ export const initializeGame = (playerIds: string[], displayNames: string[]): Gam
 
   // Add joker cards back to the remaining deck for dealing
   const fullDeck = [...remainingDeck, ...jokerCards];
-  const { deck: finalDeck, playersHands } = dealCards(fullDeck, 4, 7);
+  const { deck: finalDeck, playersHands } = dealCards(fullDeck, 4, 8);
 
   const players: Player[] = playerIds.map((id, index) => ({
     id,
@@ -415,6 +481,8 @@ export const initializeGame = (playerIds: string[], displayNames: string[]): Gam
     jokerCards,
     jokerReferenceCard,
     direction: 1,
-    lastDrawFromDiscard: false
+    lastDrawFromDiscard: false,
+    firstPlayerDiscarded: false,
+    discardedBy: {}
   };
 };
