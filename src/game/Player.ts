@@ -31,13 +31,45 @@ export class Player {
     return {
       id: this.id,
       displayName: this.displayName,
-      hand: [...this.hand],
-      melds: [...this.melds],
+      hand: this.hand.map(card => this.serializeCard(card)),
+      melds: this.melds.map(meld => this.serializeMeld(meld)),
       score: this.score,
       ready: this.ready,
       connected: this.connected,
       hasLaidRun: this.hasLaidRun
     };
+  }
+
+  // Serialize Card object to plain data for Firestore
+  private serializeCard(card: Card): any {
+    return {
+      id: card.id,
+      suit: card.suit,
+      rank: card.rank,
+      value: card.value,
+      isJoker: card.isJoker
+    };
+  }
+
+  // Serialize Meld object to plain data for Firestore
+  private serializeMeld(meld: Meld): any {
+    return {
+      id: meld.id,
+      type: meld.type,
+      cards: meld.cards.map(card => this.serializeCard(card)),
+      playerId: meld.playerId
+    };
+  }
+
+  // Deserialize plain data back to Card object
+  deserializeCard(cardData: any): Card {
+    return new Card(cardData.suit, cardData.rank, cardData.isJoker);
+  }
+
+  // Deserialize plain data back to Meld object
+  deserializeMeld(meldData: any): Meld {
+    const cards = meldData.cards.map((cardData: any) => this.deserializeCard(cardData));
+    return new Meld(meldData.type, cards, meldData.playerId);
   }
 
   // Hand management
@@ -246,14 +278,8 @@ export class Player {
   // Create player from data
   static fromData(data: PlayerData): Player {
     const player = new Player(data.id, data.displayName);
-    player.hand = data.hand.map(cardData =>
-      new Card(cardData.suit, cardData.rank, cardData.isJoker)
-    );
-    player.melds = data.melds.map(meldData =>
-      new Meld(meldData.type, meldData.cards.map(card =>
-        new Card(card.suit, card.rank, card.isJoker)
-      ), meldData.playerId)
-    );
+    player.hand = data.hand.map(cardData => player.deserializeCard(cardData));
+    player.melds = data.melds.map(meldData => player.deserializeMeld(meldData));
     player.score = data.score;
     player.ready = data.ready;
     player.connected = data.connected;

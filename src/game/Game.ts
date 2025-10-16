@@ -167,15 +167,15 @@ export class Game {
       status: this.status,
       currentRound: this.currentRound,
       players: this.players.map(player => player.getData()),
-      deck: this.deck.getCards(),
-      discardPile: this.discardPile.getAllCards(),
-      jokerCards: this.jokerCards,
-      jokerReferenceCard: this.jokerReferenceCard,
+      deck: this.deck.getCards().map(card => this.serializeCard(card)),
+      discardPile: this.discardPile.getAllCards().map(card => this.serializeCard(card)),
+      jokerCards: this.jokerCards.map(card => this.serializeCard(card)),
+      jokerReferenceCard: this.jokerReferenceCard ? this.serializeCard(this.jokerReferenceCard) : null,
       currentPlayerIndex: this.turnManager.getCurrentPlayerIndex(),
       turnStartTime: this.turnManager.getCurrentTurnActions().length > 0
         ? this.turnManager.getCurrentTurnActions()[0].timestamp
         : Date.now(),
-      lastAction: this.lastAction,
+      lastAction: this.lastAction || null,
       discardedBy: {},
       firstPlayerDiscarded: this.turnManager.hasFirstPlayerDiscarded(),
       lastDrawFromDiscard: this.turnManager.lastDrawWasFromDiscard(),
@@ -191,6 +191,22 @@ export class Game {
     }
 
     return data;
+  }
+
+  // Serialize Card object to plain data for Firestore
+  private serializeCard(card: Card): any {
+    return {
+      id: card.id,
+      suit: card.suit,
+      rank: card.rank,
+      value: card.value,
+      isJoker: card.isJoker
+    };
+  }
+
+  // Deserialize plain data back to Card object
+  deserializeCard(cardData: any): Card {
+    return new Card(cardData.suit, cardData.rank, cardData.isJoker);
   }
 
   // Getters
@@ -471,11 +487,14 @@ export class Game {
     game.currentRound = data.currentRound;
     game.players = data.players.map(Player.fromData);
     game.deck = new Deck();
-    game.deck.addCards(data.deck);
+    game.deck.addCards(data.deck.map(cardData => game.deserializeCard(cardData)));
     game.discardPile = new DiscardPile();
-    data.discardPile.forEach(card => game.discardPile.addCard(card, 'system'));
-    game.jokerCards = data.jokerCards;
-    game.jokerReferenceCard = data.jokerReferenceCard;
+    data.discardPile.forEach(cardData => {
+      const card = game.deserializeCard(cardData);
+      game.discardPile.addCard(card, 'system');
+    });
+    game.jokerCards = data.jokerCards.map(cardData => game.deserializeCard(cardData));
+    game.jokerReferenceCard = data.jokerReferenceCard ? game.deserializeCard(data.jokerReferenceCard) : null;
     game.winner = data.winner;
     game.gameOverReason = data.gameOverReason;
     game.lastAction = data.lastAction;
