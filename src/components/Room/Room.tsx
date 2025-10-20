@@ -98,7 +98,7 @@ const Room: React.FC = () => {
       await updateDoc(roomRef, {
         status: 'playing',
         gameStarted: true,
-        gameState: game.getData(),
+        gameState: game.getDataForFirestore(),
         startedAt: new Date().toISOString()
       });
 

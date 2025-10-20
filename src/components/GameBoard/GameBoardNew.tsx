@@ -130,7 +130,7 @@ const GameBoardNew: React.FC = () => {
 
     try {
       const roomRef = doc(db, 'rooms', roomId);
-      const gameData = game.getData();
+      const gameData = game.getDataForFirestore();
 
       await updateDoc(roomRef, {
         'gameState': gameData,
@@ -154,7 +154,7 @@ const GameBoardNew: React.FC = () => {
       await updateDoc(roomRef, {
         'status': 'finished',
         'gameState': {
-          ...game.getData(),
+          ...game.getDataForFirestore(),
           status: 'finished' as const
         },
         lastUpdate: serverTimestamp()
@@ -176,7 +176,7 @@ const GameBoardNew: React.FC = () => {
 
       const roomRef = doc(db, 'rooms', roomId);
       await updateDoc(roomRef, {
-        'gameState': newGame.getData(),
+        'gameState': newGame.getDataForFirestore(),
         'status': 'playing',
         lastUpdate: serverTimestamp()
       });

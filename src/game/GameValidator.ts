@@ -9,33 +9,43 @@ export interface ValidationResult {
 }
 
 export class GameValidator {
-  // Check if cards form a valid run (Rul-001 - sequence of same suit, max 4 cards)
-  static isValidRun(cards: Card[]): boolean {
-    if (cards.length < 3 || cards.length > 4) return false;
+  // Check if cards form a valid run (sequence of same suit, 3+ cards)
+  static isValidRun(cards: Card[], jokerValue?: string): boolean {
+    if (cards.length < 3) return false;
+
+    // Check if any card is an active joker
+    const activeJokerCards = cards.filter(card => jokerValue && card.isActiveJoker(jokerValue));
+    const nonJokerCards = cards.filter(card => !(jokerValue && card.isActiveJoker(jokerValue)));
 
     // Special case: 4 Ace cards are considered a valid run
-    const allAces = cards.every(card => card.rank === 'A' || card.isJoker);
-    const aceCount = cards.filter(card => card.rank === 'A').length;
+    const allAces = nonJokerCards.every(card => card.rank === 'A');
+    const aceCount = nonJokerCards.filter(card => card.rank === 'A').length;
     if (allAces && aceCount === 4) return true;
 
-    const sortedCards = [...cards].sort((a, b) => a.value - b.value);
+    const sortedCards = [...nonJokerCards].sort((a, b) => a.value - b.value);
+    if (sortedCards.length === 0) return false; // All jokers not allowed
+
     const suit = sortedCards[0].suit;
 
-    // Check if all cards have same suit
-    if (!sortedCards.every(card => card.suit === suit || card.isJoker)) return false;
+    // Check if all non-joker cards have same suit
+    if (!sortedCards.every(card => card.suit === suit)) return false;
 
-    // Check if cards form consecutive sequence
-    for (let i = 1; i < sortedCards.length; i++) {
-      const prevCard = sortedCards[i - 1];
+    // Check if cards form consecutive sequence (allowing jokers to fill gaps)
+    let expectedValue = sortedCards[0].value;
+    let jokersAvailable = activeJokerCards.length;
+
+    for (let i = 0; i < sortedCards.length; i++) {
       const currCard = sortedCards[i];
 
-      if (currCard.isJoker) continue; // Jokers are wild
-      if (prevCard.isJoker) {
-        // Check if current card fits the sequence
-        const prevNonJoker = sortedCards.slice(0, i).reverse().find(c => !c.isJoker);
-        if (prevNonJoker && currCard.value !== prevNonJoker.value + 1) return false;
+      if (currCard.value === expectedValue) {
+        expectedValue++;
+      } else if (jokersAvailable > 0) {
+        // Use a joker to fill the gap
+        jokersAvailable--;
+        expectedValue++;
+        i--; // Check this card again with new expected value
       } else {
-        if (currCard.value !== prevCard.value + 1) return false;
+        return false;
       }
     }
 
@@ -43,18 +53,21 @@ export class GameValidator {
   }
 
   // Check if cards form a valid set (same rank, different suits)
-  static isValidSet(cards: Card[]): boolean {
+  static isValidSet(cards: Card[], jokerValue?: string): boolean {
     if (cards.length < 3 || cards.length > 4) return false;
 
-    const ranks = cards.filter(c => !c.isJoker).map(card => card.rank);
-    if (ranks.length === 0) return false; // All jokers not allowed
+    // Check if any card is an active joker
+    const activeJokerCards = cards.filter(card => jokerValue && card.isActiveJoker(jokerValue));
+    const nonJokerCards = cards.filter(card => !(jokerValue && card.isActiveJoker(jokerValue)));
+
+    if (nonJokerCards.length === 0) return false; // All jokers not allowed
 
     // All non-joker cards must have same rank
-    const firstRank = ranks[0];
-    if (!ranks.every(rank => rank === firstRank)) return false;
+    const firstRank = nonJokerCards[0].rank;
+    if (!nonJokerCards.every(card => card.rank === firstRank)) return false;
 
     // Check for duplicate suits (except jokers)
-    const suits = cards.filter(c => !c.isJoker).map(card => card.suit);
+    const suits = nonJokerCards.map(card => card.suit);
     const uniqueSuits = new Set(suits);
     if (uniqueSuits.size !== suits.length) return false;
 
@@ -62,9 +75,9 @@ export class GameValidator {
   }
 
   // Check if cards form a valid meld
-  static isValidMeld(cards: Card[]): { valid: boolean; type?: MeldType } {
-    if (this.isValidRun(cards)) return { valid: true, type: 'run' };
-    if (this.isValidSet(cards)) return { valid: true, type: 'set' };
+  static isValidMeld(cards: Card[], jokerValue?: string): { valid: boolean; type?: MeldType } {
+    if (this.isValidRun(cards, jokerValue)) return { valid: true, type: 'run' };
+    if (this.isValidSet(cards, jokerValue)) return { valid: true, type: 'set' };
     return { valid: false };
   }
 
@@ -110,36 +123,38 @@ export class GameValidator {
     player: Player,
     drawFromDiscardCount?: number
   ): ValidationResult {
-    // Check if first player needs to discard first
-    if (!game.hasFirstPlayerDiscarded() &&
-        game.getCurrentPlayerIndex() === 0 &&
-        player.getHandSize() === 8) {
-      return { valid: false, error: 'Pemain pertama wajib membuang 1 kartu terlebih dahulu' };
+    // Check if first player needs to discard first (8 cards and hasn't discarded yet)
+    const isFirstPlayerTurn = player.getHandSize() === 8 && !game.hasFirstPlayerDiscarded();
+
+    if (isFirstPlayerTurn) {
+      return { valid: false, error: 'Pemain pertama wajib membuang 1 kartu terlebih dahulu sebelum mengambil kartu' };
     }
 
     if (drawFromDiscardCount !== undefined) {
       // Drawing from discard pile
-      const { matchingCards } = player.getMatchingCardsSequence(game.getDiscardPile().getAllCards());
-
-      if (matchingCards.length === 0) {
-        return { valid: false, error: 'Tidak ada pasangan kartu yang cocok di discard pile. Ambil dari deck.' };
-      }
-
-      if (drawFromDiscardCount !== matchingCards.length) {
-        return { valid: false, error: `Harus mengambil semua kartu yang cocok (${matchingCards.length} kartu)` };
+      if (drawFromDiscardCount < 1 || drawFromDiscardCount > 3) {
+        return { valid: false, error: 'Hanya dapat mengambil 1-3 kartu dari discard pile' };
       }
 
       if (game.getDiscardPile().getCount() < drawFromDiscardCount) {
         return { valid: false, error: 'Tidak cukup kartu di discard pile' };
       }
-    } else {
-      // Drawing from deck - check if player has matching pairs in discard pile
-      const { matchingCards } = player.getMatchingCardsSequence(game.getDiscardPile().getAllCards());
 
-      if (matchingCards.length > 0) {
-        return { valid: false, error: `Ada ${matchingCards.length} kartu di discard pile yang cocok. Ambil dari discard pile terlebih dahulu.` };
+      // Additional check: if no cards have been discarded yet, can't draw from discard pile
+      if (game.getDiscardPile().getCount() === 0) {
+        return { valid: false, error: 'Belum ada kartu yang dibuang, tidak bisa mengambil dari discard pile' };
       }
 
+      // If taking more than 1 card, must be able to form valid meld
+      if (drawFromDiscardCount > 1) {
+        const cardsToTake = game.getDiscardPile().getLastCards(drawFromDiscardCount);
+        const meldValidation = this.isValidMeld(cardsToTake, game.getActiveJokerValue());
+        if (!meldValidation.valid) {
+          return { valid: false, error: 'Harus dapat membentuk kombinasi valid saat mengambil >1 kartu' };
+        }
+      }
+    } else {
+      // Drawing from deck
       if (game.getDeck().isEmpty()) {
         return { valid: false, error: 'Deck kosong' };
       }
@@ -163,16 +178,27 @@ export class GameValidator {
     }
 
     // Check if it's the first player's first turn (must discard from 8 to 7 cards)
-    if (!game.hasFirstPlayerDiscarded() &&
-        game.getCurrentPlayerIndex() === 0 &&
-        player.getHandSize() === 8) {
+    const isFirstPlayerTurn = player.getHandSize() === 8 && !game.hasFirstPlayerDiscarded();
+
+    if (isFirstPlayerTurn) {
       // This is the mandatory first discard, allow any card
       return { valid: true };
     }
 
     // Additional validation for regular discard
-    if (game.lastDrawFromDiscard()) {
-      return { valid: false, error: 'Anda harus menurunkan kombinasi terlebih dahulu setelah mengambil dari discard pile' };
+    if (game.lastDrawFromDiscard() && game.getLastAction()?.drawCount && game.getLastAction()!.drawCount! > 1) {
+      return { valid: false, error: 'Anda harus menurunkan kombinasi terlebih dahulu setelah mengambil >1 kartu dari discard pile' };
+    }
+
+    // Check if player can discard joker that was used in meld
+    const card = player.getHand().find(c => c.id === cardId);
+    if (card && game.getActiveJokerValue() && card.isActiveJoker(game.getActiveJokerValue())) {
+      // Check if this joker is part of a meld
+      const melds = player.getMelds();
+      const jokerUsedInMeld = melds.some(meld => meld.cards.some(c => c.id === cardId));
+      if (jokerUsedInMeld) {
+        return { valid: false, error: 'Tidak dapat membuang joker yang sudah digunakan dalam kombinasi' };
+      }
     }
 
     return { valid: true };
@@ -197,7 +223,7 @@ export class GameValidator {
     }
 
     // Check if meld is valid
-    const meldValidation = this.isValidMeld(meldCards);
+    const meldValidation = this.isValidMeld(meldCards, game.getActiveJokerValue());
     if (!meldValidation.valid) {
       return { valid: false, error: 'Kombinasi tidak valid' };
     }
@@ -256,7 +282,7 @@ export class GameValidator {
   }
 
   // Get meld suggestions for player
-  static getMeldSuggestions(player: Player): Card[][] {
+  static getMeldSuggestions(player: Player, jokerValue?: string): Card[][] {
     const hand = player.getHand();
     const suggestions: Card[][] = [];
     const usedCardIds = new Set<string>();
@@ -266,7 +292,7 @@ export class GameValidator {
       for (let j = i + 1; j < hand.length; j++) {
         for (let k = j + 1; k < hand.length; k++) {
           const cards = [hand[i], hand[j], hand[k]];
-          if (this.isValidRun(cards)) {
+          if (this.isValidRun(cards, jokerValue)) {
             const cardIds = cards.map(c => c.id);
             if (!cardIds.some(id => usedCardIds.has(id))) {
               suggestions.push(cards);
@@ -282,7 +308,7 @@ export class GameValidator {
       for (let j = i + 1; j < hand.length; j++) {
         for (let k = j + 1; k < hand.length; k++) {
           const cards = [hand[i], hand[j], hand[k]];
-          if (this.isValidSet(cards)) {
+          if (this.isValidSet(cards, jokerValue)) {
             const cardIds = cards.map(c => c.id);
             if (!cardIds.some(id => usedCardIds.has(id))) {
               suggestions.push(cards);

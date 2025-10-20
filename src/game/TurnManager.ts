@@ -48,6 +48,18 @@ export class TurnManager {
     return this.currentPlayerIndex;
   }
 
+  // Set current player index
+  setCurrentPlayerIndex(index: number): void {
+    if (index >= 0 && index < this.players.length) {
+      this.currentPlayerIndex = index;
+      this.currentTurn = {
+        playerIndex: index,
+        startTime: Date.now(),
+        actions: []
+      };
+    }
+  }
+
   // Get all players
   getPlayers(): Player[] {
     return [...this.players];
@@ -133,7 +145,7 @@ export class TurnManager {
       this.lastDrawFromDiscard = true;
     }
 
-    if (action.type === 'discard' && this.currentPlayerIndex === 0 && !this.firstPlayerDiscarded) {
+    if (action.type === 'discard' && !this.firstPlayerDiscarded) {
       this.firstPlayerDiscarded = true;
     }
   }

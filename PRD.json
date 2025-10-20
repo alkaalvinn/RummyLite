@@ -1,0 +1,172 @@
+{
+  "game": {
+    "name": "Remi Renjana",
+    "version": "1.3",
+    "type": "GinRummyVariant",
+    "players": {
+      "count": 4,
+      "min": 4,
+      "max": 4
+    }
+  },
+
+  "deck": {
+    "base": 52,
+    "exclude": ["Joker"],
+    "setup": [
+      "shuffle all 52 cards",
+      "draw 1 random card as 'jokerDeterminer'",
+      "mark all same-value cards as 'activeJoker'",
+      "remove jokerDeterminer from deck",
+      "shuffle remaining 51 cards"
+    ]
+  },
+
+  "initialDistribution": {
+    "cardsPerPlayer": 7,
+    "totalDealt": 28,
+    "remainingDeckAfterDeal": 23,
+    "discardPileStart": 1,
+    "playerStartRule": {
+      "firstPlayer": "random",
+      "firstPlayerCards": 8,
+      "actionRequired": "discard 1 card immediately"
+    }
+  },
+
+  "turnStructure": {
+    "direction": "clockwise",
+    "turnIndexVariable": "currentTurnIndex",
+    "actions": [
+      {
+        "step": 1,
+        "name": "drawPhase",
+        "options": [
+          {
+            "option": "drawFromDeck",
+            "description": "Take 1 card from Draw Pile",
+            "rules": {
+              "meldRequired": false
+            }
+          },
+          {
+            "option": "drawFromDiscard",
+            "description": "Take 1–3 top cards from Discard Pile",
+            "rules": {
+              "ifTakeMoreThan1": "only top card goes to hand",
+              "meldRequired": true,
+              "autoPlaceExtraCards": "in meld area"
+            }
+          }
+        ]
+      },
+      {
+        "step": 2,
+        "name": "meldPhase",
+        "description": "Player may (or must) place valid sets/runs on the table",
+        "rules": {
+          "validMelds": {
+            "set": "3-4 cards, same value, different suits",
+            "run": "3+ cards, consecutive value, same suit"
+          },
+          "jokerUsage": "joker can replace any missing card in a meld",
+          "jokerCannotBeSolo": true
+        }
+      },
+      {
+        "step": 3,
+        "name": "discardPhase",
+        "description": "Player must discard exactly 1 card to the discard pile",
+        "rules": {
+          "discardRequired": true,
+          "jokerCannotBeDiscardedIfUsedInMeld": true
+        }
+      }
+    ]
+  },
+
+  "gameEnd": {
+    "conditions": [
+      {
+        "type": "playerKnock",
+        "description": "Player discards last card after melding all others"
+      },
+      {
+        "type": "deckEmpty",
+        "description": "Draw Pile is empty before any player knocks"
+      }
+    ],
+    "actions": ["calculateScore", "announceWinner", "showSummaryScreen"]
+  },
+
+  "jokerRules": {
+    "distribution": "randomly included during shuffle",
+    "usage": "may replace any card in valid melds",
+    "limit": "no limit per player",
+    "cannotStandAlone": true,
+    "visualIndicator": "highlighted with JOKER label"
+  },
+
+  "ui": {
+    "theme": "blackWhiteMinimalist",
+    "elements": {
+      "hand": {
+        "display": "horizontalCardList",
+        "sort": ["byRank", "bySuit"]
+      },
+      "discardPile": {
+        "displayTop": 3,
+        "topCardClickable": true
+      },
+      "deck": {
+        "displayType": "faceDown",
+        "showRemainingCount": true
+      },
+      "jokerCardDisplay": {
+        "fixedPosition": "topLeftCorner",
+        "visible": true
+      },
+      "buttons": [
+        "drawFromDeck",
+        "drawFromDiscard",
+        "meldCards",
+        "discardCard"
+      ],
+      "indicators": {
+        "turnHighlight": "onActivePlayer",
+        "meldRequirement": "visibleWhenRequired"
+      },
+      "validation": {
+        "meldCheck": "realTime",
+        "discardCheck": "enforcedBeforeTurnEnd"
+      }
+    }
+  },
+
+  "dataStructures": {
+    "state": {
+      "players": [
+        {
+          "id": "integer",
+          "hand": "array of cards",
+          "melds": "array of meld groups",
+          "score": "integer"
+        }
+      ],
+      "deck": "array of remaining cards",
+      "discardPile": "array of discarded cards",
+      "activeJokerValue": "string (e.g., '7')",
+      "currentTurnIndex": "integer (0–3)",
+      "gameStatus": "string (e.g., 'active', 'ended')"
+    }
+  },
+
+  "uiFeedbackLogic": {
+    "onTurnStart": "show draw options",
+    "onDrawFromDiscardMoreThanOne": "force meld prompt",
+    "onValidMeld": "show green highlight",
+    "onInvalidMeld": "show red warning",
+    "onDiscard": "update discard pile + advance turn",
+    "onGameEnd": "trigger score calculation modal"
+  }
+}

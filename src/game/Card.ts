@@ -35,8 +35,8 @@ export class Card {
   }
 
   // Get display string for the card
-  getDisplay(): string {
-    if (this.isJoker) return '🃏';
+  getDisplay(jokerValue?: string): string {
+    if (this.isActiveJoker(jokerValue)) return `${this.rank}🃏`;
 
     const suitSymbols = {
       hearts: '♥️',
@@ -49,8 +49,8 @@ export class Card {
   }
 
   // Get color for display
-  getColor(): string {
-    if (this.isJoker) return 'text-black';
+  getColor(jokerValue?: string): string {
+    if (this.isActiveJoker(jokerValue)) return 'text-purple-600 font-bold';
     return 'text-black'; // All cards black in this design
   }
 
@@ -68,6 +68,11 @@ export class Card {
   // Check if card forms sequence with another card
   formsSequenceWith(other: Card): boolean {
     return this.suit === other.suit && Math.abs(this.value - other.value) === 1;
+  }
+
+  // Check if card is an active joker based on the joker value
+  isActiveJoker(jokerValue?: string): boolean {
+    return jokerValue ? this.rank === jokerValue : false;
   }
 
   // Create a copy of the card
