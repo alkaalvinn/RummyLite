@@ -42,7 +42,6 @@ export interface GameState {
   direction: 1 | -1; // For multiplayer turn order
   winner?: string;
   lastDrawFromDiscard?: boolean; // Track if last draw was from discard pile
-  firstPlayerDiscarded?: boolean; // Track if first player has made their mandatory discard
   lastAction?: {
     type: 'draw' | 'discard' | 'meld';
     playerId: string;
@@ -115,9 +114,10 @@ export const determineJokerCards = (deck: Card[]): {
     !matchingCards.some(match => match.id === card.id)
   );
 
-  // Mark the 3 cards as jokers
-  const markedJokerCards = jokerCards.map(card => ({
+  // Mark the 3 cards as jokers with unique IDs
+  const markedJokerCards = jokerCards.map((card, index) => ({
     ...card,
+    id: `${card.id}-joker-${index}`, // Create unique ID for joker cards
     isJoker: true
   }));
 
@@ -128,8 +128,8 @@ export const determineJokerCards = (deck: Card[]): {
   };
 };
 
-// Deal cards to players
-export const dealCards = (deck: Card[], playerCount: number, cardsPerPlayer: number = 8): {
+// Deal cards to players (Gin Rummy style - 7 cards each)
+export const dealCards = (deck: Card[], playerCount: number, cardsPerPlayer: number = 7): {
   deck: Card[];
   playersHands: Card[][];
 } => {
@@ -276,10 +276,7 @@ export const validateAction = (
 
   switch (action) {
     case 'draw':
-      // Check if first player needs to discard first (rule: first player starts with 8 cards, must discard to 7)
-      if (!gameState.firstPlayerDiscarded && gameState.currentPlayerIndex === 0 && currentPlayer.hand.length === 8) {
-        return { valid: false, error: 'Pemain pertama wajib membuang 1 kartu terlebih dahulu' };
-      }
+      // All players start with 7 cards, no special first player rules needed
 
       if (drawFromDiscardCount) {
         // Drawing from discard pile - check if player has matching pairs
@@ -320,11 +317,7 @@ export const validateAction = (
         return { valid: false, error: 'Kartu tidak ada di tangan' };
       }
 
-      // Check if it's the first player's first turn (must discard from 8 to 7 cards)
-      if (!gameState.firstPlayerDiscarded && gameState.currentPlayerIndex === 0 && currentPlayer.hand.length === 8) {
-        // This is the mandatory first discard, allow any card
-        break;
-      }
+      // No special first player rules - everyone can discard normally
       break;
 
     case 'meld':
@@ -456,7 +449,7 @@ export const initializeGame = (playerIds: string[], displayNames: string[]): Gam
 
   // Add joker cards back to the remaining deck for dealing
   const fullDeck = [...remainingDeck, ...jokerCards];
-  const { deck: finalDeck, playersHands } = dealCards(fullDeck, 4, 8);
+  const { deck: finalDeck, playersHands } = dealCards(fullDeck, 4, 7);
 
   const players: Player[] = playerIds.map((id, index) => ({
     id,
@@ -482,7 +475,6 @@ export const initializeGame = (playerIds: string[], displayNames: string[]): Gam
     jokerReferenceCard,
     direction: 1,
     lastDrawFromDiscard: false,
-    firstPlayerDiscarded: false,
     discardedBy: {}
   };
 };

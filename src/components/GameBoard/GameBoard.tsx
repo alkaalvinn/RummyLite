@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { subscribeToRoom } from '../../services/firebase';
-import { GameState, Card, getNextPlayerIndex, validateAction, canPlayerWin, hasMultipleMatchingCards } from '../../lib/rummyEngine';
+import { Game } from '../../game/Game';
+import { Card } from '../../game/Card';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 
@@ -10,13 +11,13 @@ const GameBoard: React.FC = () => {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
   const { user } = useAuthStore();
-  const [gameState, setGameState] = useState<GameState | null>(null);
+  const [game, setGame] = useState<Game | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedCards, setSelectedCards] = useState<string[]>([]);
-    const [discardDrawCount, setDiscardDrawCount] = useState<number>(0);
-    const [showAllDiscarded, setShowAllDiscarded] = useState<boolean>(false);
+  const [showAllDiscarded, setShowAllDiscarded] = useState<boolean>(false);
   const [groupByPlayer, setGroupByPlayer] = useState<boolean>(false);
+  const [sortBy, setSortBy] = useState<'rank' | 'suit' | 'both' | 'none'>('none');
 
   useEffect(() => {
     if (!roomId || !user) {
@@ -25,8 +26,10 @@ const GameBoard: React.FC = () => {
     }
 
     const unsubscribe = subscribeToRoom(roomId, (data) => {
-      if (data.gameState) {
-        setGameState(data.gameState);
+      if (data.gameData) {
+        // Reconstruct Game object from saved data
+        const gameObj = Game.fromData(data.gameData);
+        setGame(gameObj);
       }
       setLoading(false);
 
@@ -48,95 +51,87 @@ const GameBoard: React.FC = () => {
     );
   };
 
-  const handleDrawCard = async (fromDiscard: boolean = false) => {
-    if (!gameState || !user || !roomId) return;
+  // Helper functions
+  const getCardDisplay = (card: Card): string => {
+    if (card.isJoker) return '🃏';
+    const suitSymbols = {
+      hearts: '♥️',
+      diamonds: '♦️',
+      clubs: '♣️',
+      spades: '♠️'
+    };
+    return `${card.rank}${suitSymbols[card.suit]}`;
+  };
 
-    const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+  const getCardColor = (card: Card): string => {
+    if (card.isJoker) return 'text-black';
+    if (card.suit === 'hearts' || card.suit === 'diamonds') return 'text-black';
+    return 'text-black';
+  };
+
+  // Sorting functions for cards
+  const sortCards = (cards: Card[], sortBy: 'rank' | 'suit' | 'both'): Card[] => {
+    const sorted = [...cards];
+
+    switch (sortBy) {
+      case 'rank':
+        return sorted.sort((a, b) => {
+          // Define rank order
+          const rankOrder = {'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13};
+          return rankOrder[a.rank] - rankOrder[b.rank];
+        });
+      case 'suit':
+        return sorted.sort((a, b) => {
+          const suitOrder = {'hearts': 1, 'diamonds': 2, 'clubs': 3, 'spades': 4};
+          if (suitOrder[a.suit] !== suitOrder[b.suit]) {
+            return suitOrder[a.suit] - suitOrder[b.suit];
+          }
+          // If same suit, sort by rank
+          const rankOrder = {'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13};
+          return rankOrder[a.rank] - rankOrder[b.rank];
+        });
+      case 'both':
+        return sorted.sort((a, b) => {
+          // Sort by rank first, then by suit
+          const rankOrder = {'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13};
+          if (rankOrder[a.rank] !== rankOrder[b.rank]) {
+            return rankOrder[a.rank] - rankOrder[b.rank];
+          }
+          const suitOrder = {'hearts': 1, 'diamonds': 2, 'clubs': 3, 'spades': 4};
+          return suitOrder[a.suit] - suitOrder[b.suit];
+        });
+      default:
+        return sorted;
+    }
+  };
+
+  const getSortedHand = (hand: Card[]): Card[] => {
+    if (sortBy === 'none') return hand;
+    return sortCards(hand, sortBy);
+  };
+
+  const handleDrawCard = async (fromDiscard: boolean = false, drawCount?: number) => {
+    if (!game || !user || !roomId) return;
+
+    const currentPlayer = game.getCurrentPlayer();
     if (currentPlayer.id !== user.uid) return;
 
     try {
-      // Check for matching cards in discard pile
-      const { matchingCards } = hasMultipleMatchingCards(currentPlayer, gameState.discardPile);
-
-      // Auto-determine draw source based on matching cards
-      if (!fromDiscard && matchingCards.length > 0) {
-        // Player must take from discard pile if there are matching cards
-        fromDiscard = true;
-        // Set discard draw count to match all available cards
-        setDiscardDrawCount(matchingCards.length);
-      }
-
-      let newHand: Card[];
-      let newDeck = [...gameState.deck];
-      let newDiscardPile = [...gameState.discardPile];
-      let lastDrawFromDiscard = false;
-      let drawnCards: Card[] = [];
-
-      if (fromDiscard && discardDrawCount > 0) {
-        // Draw from discard pile
-        const validation = validateAction(
-          gameState,
-          user.uid,
-          'draw',
-          undefined,
-          undefined,
-          discardDrawCount
-        );
-        if (!validation.valid) {
-          setError(validation.error || 'Invalid action');
-          return;
-        }
-
-        // Take matching cards from discard pile
-        drawnCards = gameState.discardPile.slice(-discardDrawCount);
-        newDiscardPile = gameState.discardPile.slice(0, -discardDrawCount);
-        newHand = [...currentPlayer.hand, ...drawnCards];
-        lastDrawFromDiscard = true;
-
-        // Clear discard draw count after use
-        setDiscardDrawCount(0);
+      // Draw card using Game class
+      if (fromDiscard && drawCount) {
+        await game.drawCard(user.uid, true, drawCount);
       } else {
-        // Draw from deck
-        const validation = validateAction(gameState, user.uid, 'draw');
-        if (!validation.valid) {
-          setError(validation.error || 'Invalid action');
-          return;
-        }
-
-        const drawnCard = gameState.deck[0];
-        drawnCards = [drawnCard];
-        newDeck = gameState.deck.slice(1);
-        newHand = [...currentPlayer.hand, drawnCard];
+        await game.drawCard(user.uid, false);
       }
 
-      // Update game state
-      const updatedPlayers = [...gameState.players];
-      updatedPlayers[gameState.currentPlayerIndex] = {
-        ...currentPlayer,
-        hand: newHand
-      };
-
-      const newGameState = {
-        ...gameState,
-        deck: newDeck,
-        discardPile: newDiscardPile,
-        players: updatedPlayers,
-        currentPlayerIndex: getNextPlayerIndex(gameState.currentPlayerIndex, gameState.players.length),
-        turnStartTime: Date.now(),
-        lastDrawFromDiscard,
-        lastAction: {
-          type: 'draw',
-          playerId: user.uid,
-          drawCount: drawnCards.length
-        }
-      };
-
-      // Save to Firebase
-      const roomRef = doc(db, 'rooms', roomId);
-      await updateDoc(roomRef, {
-        'gameState': newGameState,
-        lastUpdate: serverTimestamp()
-      });
+      // Update Firebase with new game state
+      if (roomId) {
+        const roomRef = doc(db, 'rooms', roomId);
+        await updateDoc(roomRef, {
+          'gameData': game.getDataForFirestore(),
+          lastUpdate: serverTimestamp()
+        });
+      }
 
       setSelectedCards([]);
       setError('');
@@ -146,184 +141,58 @@ const GameBoard: React.FC = () => {
   };
 
   const handleDiscardCard = async (cardId: string) => {
-    if (!gameState || !user || !roomId) return;
+    if (!game || !user || !roomId) return;
 
-    const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+    const currentPlayer = game.getCurrentPlayer();
     if (currentPlayer.id !== user.uid) return;
 
-    // Validate action
-    const validation = validateAction(gameState, user.uid, 'discard', cardId);
-    if (!validation.valid) {
-      setError(validation.error || 'Invalid action');
-      return;
-    }
-
     try {
-      // Remove card from hand and add to discard pile
-      const cardToDiscard = currentPlayer.hand.find(c => c.id === cardId);
-      if (!cardToDiscard) return;
+      // Discard card using Game class
+      await game.discardCard(user.uid, cardId);
 
-      const newHand = currentPlayer.hand.filter(c => c.id !== cardId);
-      const newDiscardPile = [...gameState.discardPile, cardToDiscard];
-
-      // Check for winning condition (Memukul - Rul-004)
-      const { isGameOver } = await import('../../lib/rummyEngine');
-      const gameStatus = isGameOver({
-        ...gameState,
-        discardPile: newDiscardPile,
-        players: gameState.players.map((p, index) =>
-          index === gameState.currentPlayerIndex
-            ? { ...p, hand: newHand }
-            : p
-        )
-      });
-
-      let gameWinner = gameStatus.winner;
-      let gameStatus_final = 'playing';
-
-      if (gameStatus.gameOver) {
-        gameStatus_final = 'finished';
-        if (gameStatus.winner === user.uid) {
-          // Player wins with Memukul!
-          const { calculateWinningScore } = await import('../../lib/rummyEngine');
-          const winScore = calculateWinningScore(cardToDiscard);
-
-          // Update winner's score
-          const updatedPlayers = gameState.players.map(p =>
-            p.id === user.uid ? { ...p, score: winScore } : p
-          );
-
-          // Update game state with winner
-          const newGameState = {
-            ...gameState,
-            discardPile: newDiscardPile,
-            players: updatedPlayers,
-            status: 'finished' as const,
-            winner: user.uid,
-            lastAction: {
-              type: 'discard' as const,
-              playerId: user.uid,
-              cardId
-            },
-            discardedBy: {
-              ...gameState.discardedBy,
-              [cardId]: user.uid
-            }
-          };
-
-          const roomRef = doc(db, 'rooms', roomId);
-          await updateDoc(roomRef, {
-            'gameState': newGameState,
-            lastUpdate: serverTimestamp()
-          });
-
-          setError('');
-          return;
-        }
+      // Update Firebase with new game state
+      if (roomId) {
+        const roomRef = doc(db, 'rooms', roomId);
+        await updateDoc(roomRef, {
+          'gameData': game.getDataForFirestore(),
+          lastUpdate: serverTimestamp()
+        });
       }
-
-      // Update game state
-      const updatedPlayers = [...gameState.players];
-      updatedPlayers[gameState.currentPlayerIndex] = {
-        ...currentPlayer,
-        hand: newHand
-      };
-
-      const isFirstPlayerDiscard = !gameState.firstPlayerDiscarded && gameState.currentPlayerIndex === 0 && currentPlayer.hand.length === 8;
-
-      const newGameState = {
-        ...gameState,
-        discardPile: newDiscardPile,
-        players: updatedPlayers,
-        currentPlayerIndex: getNextPlayerIndex(gameState.currentPlayerIndex, gameState.players.length),
-        turnStartTime: Date.now(),
-        status: gameStatus_final as 'playing' | 'finished',
-        winner: gameWinner,
-        lastDrawFromDiscard: false, // Reset discard draw flag
-        firstPlayerDiscarded: gameState.firstPlayerDiscarded || isFirstPlayerDiscard,
-        lastAction: {
-          type: 'discard',
-          playerId: user.uid,
-          cardId
-        },
-        discardedBy: {
-          ...gameState.discardedBy,
-          [cardId]: user.uid
-        }
-      };
-
-      // Save to Firebase
-      const roomRef = doc(db, 'rooms', roomId);
-      await updateDoc(roomRef, {
-        'gameState': newGameState,
-        lastUpdate: serverTimestamp()
-      });
 
       setSelectedCards([]);
       setError('');
+
+      // Check if game is finished
+      if (game.isFinished()) {
+        // Handle game finished state
+        const winner = game.getWinner();
+        if (winner === user.uid) {
+          setError('🎉 Selamat! Anda menang dengan Memukul!');
+        }
+      }
     } catch (err: any) {
       setError(err.message);
     }
   };
 
   const handleMeldCards = async () => {
-    if (!gameState || !user || !roomId || selectedCards.length < 3) return;
+    if (!game || !user || !roomId || selectedCards.length < 3) return;
 
-    const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+    const currentPlayer = game.getCurrentPlayer();
     if (currentPlayer.id !== user.uid) return;
 
-    // Get selected cards
-    const cardsToMeld = selectedCards.map(id =>
-      currentPlayer.hand.find(c => c.id === id)
-    ).filter(Boolean) as Card[];
-
-    // Validate meld
-    const validation = validateAction(gameState, user.uid, 'meld', undefined, cardsToMeld);
-    if (!validation.valid) {
-      setError(validation.error || 'Invalid meld');
-      return;
-    }
-
-    // Determine meld type
-    const { isValidMeld } = await import('../../lib/rummyEngine');
-    const meldResult = isValidMeld(cardsToMeld);
-    const meldType = meldResult.type || 'run';
-
     try {
-      // Remove cards from hand and add to melds
-      const newHand = currentPlayer.hand.filter(c => !selectedCards.includes(c.id));
-      const newMeld = {
-        id: `meld-${Date.now()}`,
-        type: meldType as 'run' | 'set',
-        cards: cardsToMeld,
-        playerId: user.uid
-      };
+      // Create meld using Game class
+      await game.createMeld(user.uid, selectedCards);
 
-      // Update game state
-      const updatedPlayers = [...gameState.players];
-      updatedPlayers[gameState.currentPlayerIndex] = {
-        ...currentPlayer,
-        hand: newHand,
-        melds: [...currentPlayer.melds, newMeld],
-        hasLaidRun: currentPlayer.hasLaidRun || meldType === 'run' // Mark run as laid
-      };
-
-      const newGameState = {
-        ...gameState,
-        players: updatedPlayers,
-        lastAction: {
-          type: 'meld',
-          playerId: user.uid,
-          meldId: newMeld.id
-        }
-      };
-
-      // Save to Firebase
-      const roomRef = doc(db, 'rooms', roomId);
-      await updateDoc(roomRef, {
-        'gameState': newGameState,
-        lastUpdate: serverTimestamp()
-      });
+      // Update Firebase with new game state
+      if (roomId) {
+        const roomRef = doc(db, 'rooms', roomId);
+        await updateDoc(roomRef, {
+          'gameData': game.getDataForFirestore(),
+          lastUpdate: serverTimestamp()
+        });
+      }
 
       setSelectedCards([]);
       setError('');
@@ -333,25 +202,7 @@ const GameBoard: React.FC = () => {
   };
 
   
-  const getCardDisplay = (card: Card) => {
-    if (card.isJoker) return '🃏';
-
-    const suitSymbols = {
-      hearts: '♥️',
-      diamonds: '♦️',
-      clubs: '♣️',
-      spades: '♠️'
-    };
-
-    return `${card.rank}${suitSymbols[card.suit]}`;
-  };
-
-  const getCardColor = (card: Card) => {
-    if (card.isJoker) return 'text-black';
-    if (card.suit === 'hearts' || card.suit === 'diamonds') return 'text-black';
-    return 'text-black';
-  };
-
+  
   const getPlayerColor = (playerId: string) => {
     const colors = [
       'bg-blue-500',
@@ -363,7 +214,7 @@ const GameBoard: React.FC = () => {
       'bg-indigo-500',
       'bg-gray-500'
     ];
-    const playerIndex = gameState?.players.findIndex(p => p.id === playerId) ?? 0;
+    const playerIndex = gameData?.players.findIndex((p: any) => p.id === playerId) ?? 0;
     return colors[playerIndex % colors.length];
   };
 
@@ -375,7 +226,7 @@ const GameBoard: React.FC = () => {
     );
   }
 
-  if (!gameState) {
+  if (!game) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
         <div className="text-black text-xl">Game tidak ditemukan</div>
@@ -383,29 +234,40 @@ const GameBoard: React.FC = () => {
     );
   }
 
-  const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+  const currentPlayer = game.getCurrentPlayer();
   const isMyTurn = currentPlayer?.id === user?.uid;
-  const myPlayer = gameState.players.find(p => p.id === user?.uid);
+  const myPlayer = game.getPlayer(user?.uid || '');
+  const gameData = game.getData();
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b border-black">
+      <header className="bg-white border-b-2 border-black shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
-            <div className="flex items-center space-x-4">
-              <h1 className="text-xl font-bold text-black">Room: {roomId}</h1>
-              <span className="text-gray-600">Ronde {gameState.currentRound}</span>
+            <div className="flex items-center space-x-6">
+              <div>
+                <h1 className="text-2xl font-bold text-black">Room: {roomId}</h1>
+                <span className="text-sm text-gray-600">Ronde {gameData.currentRound}</span>
+              </div>
+              <div className="hidden sm:block">
+                <span className="px-3 py-1 bg-black text-white text-sm rounded-full">
+                  Status: {gameData.status === 'playing' ? 'Bermain' : gameData.status}
+                </span>
+              </div>
             </div>
-            <div className="text-black">
-              Giliran: <span className="font-bold">{currentPlayer?.displayName}</span>
+            <div className="text-right">
+              <div className="text-lg font-bold text-black">
+                {currentPlayer?.displayName}
+              </div>
+              <div className="text-sm text-gray-600">Sedang Bermain ({gameData.currentTurnPhase})</div>
             </div>
           </div>
         </div>
       </header>
 
       {/* Game Board */}
-      <main className="container mx-auto px-4 py-6">
+      <main className="max-w-7xl mx-auto px-4 py-6">
         {error && (
           <div className="mb-4 bg-black text-white px-4 py-3 rounded-lg text-sm text-center border border-black">
             {error}
@@ -414,16 +276,16 @@ const GameBoard: React.FC = () => {
 
 
         {/* Joker Reference Card Display */}
-        {gameState.jokerReferenceCard && (
-          <div className="bg-white border border-black rounded-lg p-4 mb-6">
+        {gameData.jokerReferenceCard && (
+          <div className="bg-white border-2 border-black rounded-xl shadow-lg p-6 mb-6">
             <div className="text-center">
               <h3 className="text-black font-medium mb-2">Kartu Joker</h3>
               <div className="flex justify-center items-center space-x-4">
                 <div className="text-center">
                   <p className="text-sm text-gray-600 mb-2">Referensi</p>
                   <div className="w-16 h-24 bg-white border-2 border-black rounded-lg flex items-center justify-center text-2xl font-bold shadow-lg">
-                    <span className={getCardColor(gameState.jokerReferenceCard)}>
-                      {getCardDisplay(gameState.jokerReferenceCard)}
+                    <span className={getCardColor(gameData.jokerReferenceCard)}>
+                      {getCardDisplay(gameData.jokerReferenceCard)}
                     </span>
                   </div>
                 </div>
@@ -434,7 +296,7 @@ const GameBoard: React.FC = () => {
                   </div>
                 </div>
                 <div className="text-left">
-                  <p className="text-sm text-gray-600">Semua kartu {gameState.jokerReferenceCard.rank} menjadi Joker</p>
+                  <p className="text-sm text-gray-600">Semua kartu {gameData.jokerReferenceCard.rank} menjadi Joker</p>
                   <p className="text-xs text-gray-500">Kecuali kartu referensi di atas</p>
                 </div>
               </div>
@@ -444,8 +306,8 @@ const GameBoard: React.FC = () => {
 
         {/* Other Players */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          {gameState.players.filter(p => p.id !== user?.uid).map(player => (
-            <div key={player.id} className="bg-white border border-black rounded-lg p-4">
+          {gameData.players.filter(p => p.id !== user?.uid).map(player => (
+            <div key={player.id} className="bg-white border-2 border-black rounded-lg shadow-md p-4">
               <div className="flex justify-between items-center mb-2">
                 <h3 className="text-black font-medium">{player.displayName}</h3>
                 {currentPlayer?.id === player.id && (
@@ -469,68 +331,140 @@ const GameBoard: React.FC = () => {
         </div>
 
         {/* Play Area */}
-        <div className="bg-white border border-black rounded-lg p-6 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white border-2 border-black rounded-xl shadow-lg p-6 mb-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Deck */}
             <div className="text-center">
-              <h3 className="text-black font-medium mb-2">Deck</h3>
-              <div className="inline-block">
-                <div className="w-16 h-24 bg-black border-2 border-black rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-lg">
-                  {gameState.deck.length}
+              <div className="bg-gray-50 border-2 border-black rounded-lg p-4">
+                <h3 className="text-black font-bold mb-3">Deck</h3>
+                <div className="inline-block">
+                  <div className="relative">
+                    <div className={`w-20 h-28 ${gameData.deck.length === 0 ? 'bg-red-100 border-red-300' : 'bg-black'} border-2 border-black rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-lg transition-all duration-200 ${
+                      isMyTurn && gameData.deck.length > 0 ? 'hover:scale-105 cursor-pointer' : ''
+                    }`}
+                         onClick={() => isMyTurn && gameData.deck.length > 0 && handleDrawCard(false)}>
+                      {gameData.deck.length === 0 ? (
+                        <span className="text-red-500 text-3xl">🚫</span>
+                      ) : (
+                        <span className="text-2xl">{gameData.deck.length}</span>
+                      )}
+                    </div>
+                    {/* Stacked cards effect */}
+                    {gameData.deck.length > 0 && (
+                      <>
+                        <div className="w-20 h-28 bg-black border-2 border-black rounded-lg absolute -left-1 -top-1 opacity-30"></div>
+                        <div className="w-20 h-28 bg-black border-2 border-black rounded-lg absolute -left-2 -top-2 opacity-20"></div>
+                        <div className="w-20 h-28 bg-black border-2 border-black rounded-lg absolute -left-3 -top-3 opacity-10"></div>
+                      </>
+                    )}
+                  </div>
+                  <div className="text-sm text-gray-600 mt-2 font-medium">
+                    {gameData.deck.length === 0 ? 'Deck Kosong' : `${gameData.deck.length} kartu tersisa`}
+                  </div>
                 </div>
-                <div className="text-sm text-gray-600 mt-1">Kartu tersisa</div>
-              </div>
               {isMyTurn && (
                 <div className="mt-2 flex flex-col space-y-2">
-                  {/* Check if player has matching cards in discard pile */}
-                  {(() => {
-                    const { matchingCards } = hasMultipleMatchingCards(myPlayer!, gameState.discardPile);
-                    if (matchingCards.length > 0) {
-                      return (
-                        <div className="space-y-2">
-                          <p className="text-sm text-green-600 font-medium">
-                            ✅ {matchingCards.length} kartu cocok di discard pile
-                          </p>
+                  {gameData.currentTurnPhase === 'drawPhase' ? (
+                    // Draw phase - show draw options
+                    (() => {
+                      // Check if must discard first (first player with 8 cards)
+                      if (game.mustDiscardFirst()) {
+                        return (
+                          <div className="space-y-2">
+                            <p className="text-sm text-orange-600 font-medium">
+                              ⚠️ Pemain pertama wajib membuang 1 kartu
+                            </p>
+                            <p className="text-xs text-gray-600">
+                              Tidak bisa mengambil kartu sampai membuang kartu
+                            </p>
+                          </div>
+                        );
+                      }
+
+                      // Check if can draw from discard pile (need matching cards)
+                      const discardPile = game.getDiscardPile();
+                      const topCards = discardPile.getLastCards(3);
+                      const canDrawFromDiscard = topCards.some(card =>
+                        myPlayer?.getHand().some(handCard =>
+                          handCard.rank === card.rank && handCard.suit !== card.suit ||
+                          handCard.suit === card.suit && Math.abs(handCard.value - card.value) === 1
+                        )
+                      );
+
+                      if (canDrawFromDiscard && discardPile.getCount() > 0) {
+                        return (
+                          <div className="space-y-2">
+                            <p className="text-sm text-green-600 font-medium">
+                              ✅ Ada kartu yang cocok di discard pile
+                            </p>
+                            <button
+                              onClick={() => handleDrawCard(true, 1)}
+                              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-sm border border-green-600 w-full"
+                            >
+                              📤 Ambil dari Discard
+                            </button>
+                            <p className="text-xs text-orange-600">
+                              ⚠️ Wajib ambil dari discard pile
+                            </p>
+                          </div>
+                        );
+                      } else {
+                        return (
                           <button
-                            onClick={() => handleDrawCard(true)}
-                            className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-sm border border-green-600"
+                            onClick={() => handleDrawCard(false)}
+                            className="px-4 py-2 bg-black text-white rounded hover:bg-gray-800 transition-colors text-sm border border-black w-full"
+                            disabled={game.getDeck().isEmpty()}
                           >
-                            📤 Ambil {matchingCards.length} dari Discard
+                            🎴 Ambil 1 dari Deck
                           </button>
-                        </div>
-                      );
-                    } else {
-                      return (
-                        <button
-                          onClick={() => handleDrawCard(false)}
-                          className="px-4 py-2 bg-black text-white rounded hover:bg-gray-800 transition-colors text-sm border border-black"
-                        >
-                          🎴 Ambil 1 dari Deck
-                        </button>
-                      );
-                    }
-                  })()}
+                        );
+                      }
+                    })()
+                  ) : (
+                    // Not draw phase
+                    <div className="space-y-2">
+                      <p className="text-sm text-gray-600">
+                        Fase: {gameData.currentTurnPhase === 'meldPhase' ? 'Menurunkan Kartu' : 'Membuang Kartu'}
+                      </p>
+                      {gameData.currentTurnPhase === 'meldPhase' && (
+                        <p className="text-xs text-gray-500">
+                          {game.lastDrawFromDiscard()
+                            ? 'Wajib menurunkan kombinasi'
+                            : 'Boleh menurunkan kombinasi'}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
+              </div>
             </div>
 
             {/* Discard Pile */}
             <div className="text-center">
-              <h3 className="text-black font-medium mb-2">Discard Pile (3 Terakhir)</h3>
-              <div className="flex justify-center space-x-1">
-                {gameState.discardPile.length > 0 ? (
+              <div className="bg-gray-50 border-2 border-black rounded-lg p-4">
+                <h3 className="text-black font-bold mb-3">Discard Pile</h3>
+                <div className="flex justify-center space-x-1">
+                {gameData.discardPile.length > 0 ? (
                   <>
-                    {gameState.discardPile.slice(-3).reverse().map((card, index) => {
-                      const isMatching = myPlayer ? hasMultipleMatchingCards(myPlayer, [card]).matchingCards.length > 0 : false;
+                    {gameData.discardPile.slice(-3).reverse().map((card, index) => {
+                      const discardPile = game.getDiscardPile();
+                      const topCards = discardPile.getLastCards(3);
+                      const isMatching = topCards.some(topCard =>
+                        myPlayer?.getHand().some(handCard =>
+                          handCard.rank === topCard.rank && handCard.suit !== topCard.suit ||
+                          handCard.suit === topCard.suit && Math.abs(handCard.value - topCard.value) === 1
+                        )
+                      );
                       return (
                         <div key={card.id} className="relative">
                           <div
-                            className={`w-12 h-16 border-2 rounded-lg flex items-center justify-center text-lg font-bold shadow-lg transition-all ${
-                              isMatching ? 'bg-green-50 border-green-500' : 'bg-white border-black'
+                            className={`w-14 h-20 border-2 rounded-lg flex items-center justify-center text-lg font-bold shadow-lg transition-all hover:scale-105 ${
+                              isMatching && index === 0 ? 'bg-green-50 border-green-500 hover:bg-green-100' : 'bg-white border-black hover:bg-gray-50'
                             }`}
                             style={{
                               zIndex: index,
-                              transform: `translateX(${index * 8}px)`,
+                              transform: `translateX(${index * 10}px)`,
                               position: index > 0 ? 'absolute' : 'relative'
                             }}
                           >
@@ -540,10 +474,10 @@ const GameBoard: React.FC = () => {
                           </div>
                           {index === 0 && (
                             <div className="absolute -top-2 -right-2 bg-black text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
-                              {gameState.discardPile.length}
+                              {gameData.discardPile.length}
                             </div>
                           )}
-                          {isMatching && (
+                          {isMatching && index === 0 && (
                             <div className="absolute -top-2 -left-2 bg-green-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
                               ✓
                             </div>
@@ -558,10 +492,18 @@ const GameBoard: React.FC = () => {
                   </div>
                 )}
               </div>
-              {isMyTurn && gameState.discardPile.length > 0 && myPlayer && (
+              {isMyTurn && gameData.discardPile.length > 0 && myPlayer && (
                 <div className="mt-3">
                   {(() => {
-                    const { matchingCards } = hasMultipleMatchingCards(myPlayer, gameState.discardPile);
+                    const discardPile = game.getDiscardPile();
+                    const topCards = discardPile.getLastCards(3);
+                    const matchingCards = topCards.filter(card =>
+                      myPlayer?.getHand().some(handCard =>
+                        handCard.rank === card.rank && handCard.suit !== card.suit ||
+                        handCard.suit === card.suit && Math.abs(handCard.value - card.value) === 1
+                      )
+                    );
+
                     if (matchingCards.length > 0) {
                       return (
                         <div className="space-y-1">
@@ -597,49 +539,53 @@ const GameBoard: React.FC = () => {
                   })()}
                 </div>
               )}
-              <div className="text-sm text-gray-600 mt-2">
-                Total: {gameState.discardPile.length} kartu
+              <div className="text-sm text-gray-600 mt-2 font-medium">
+                Total: {gameData.discardPile.length} kartu
+              </div>
               </div>
             </div>
 
             {/* Game Info */}
             <div className="text-center">
-              <h3 className="text-black font-medium mb-2">Info Game</h3>
-              <div className="space-y-1 text-sm text-gray-600">
-                <div>Status: {gameState.status}</div>
-                <div>Pemain: {gameState.players.length}/4</div>
-                {gameState.winner && (
+              <div className="bg-gray-50 border-2 border-black rounded-lg p-4">
+                <h3 className="text-black font-bold mb-3">Info Game</h3>
+                <div className="space-y-2 text-sm">
+                <div>Status: {gameData.status}</div>
+                <div>Pemain: {gameData.players.length}/4</div>
+                <div>Fase: {gameData.currentTurnPhase}</div>
+                {gameData.winner && (
                   <div className="text-black font-bold">
-                    🏆 Pemenang: {gameState.players.find(p => p.id === gameState.winner)?.displayName}
+                    🏆 Pemenang: {gameData.players.find(p => p.id === gameData.winner)?.displayName}
                   </div>
                 )}
-                {!gameState.firstPlayerDiscarded && gameState.currentPlayerIndex === 0 && (
-                  <div className="text-orange-600 text-xs font-medium bg-orange-50 px-2 py-1 rounded">
-                    🎯 Pemain pertama wajib membuang 1 kartu (8 → 7)
-                  </div>
-                )}
-                {myPlayer && !myPlayer.hasLaidRun && (
+                {myPlayer && !myPlayer.hasLaidRunMeld() && (
                   <div className="text-black text-xs">
                     💡 Belum menurunkan Urutan (Run) wajib
                   </div>
                 )}
-                {gameState.lastDrawFromDiscard && (
+                {game.lastDrawFromDiscard() && (
                   <div className="text-black text-xs">
                     ⚠️ Wajib menurunkan kombinasi
                   </div>
                 )}
+                {game.mustDiscardFirst() && (
+                  <div className="text-orange-600 text-xs">
+                    ⚠️ Wajib membuang kartu terlebih dahulu
+                  </div>
+                )}
+              </div>
               </div>
             </div>
           </div>
         </div>
 
         {/* Discarded Cards Display */}
-        {gameState.discardPile.length > 0 && (
-          <div className="bg-white border border-black rounded-lg p-6 mb-6">
+        {gameData.discardPile.length > 0 && (
+          <div className="bg-white border-2 border-black rounded-xl shadow-lg p-6 mb-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-black font-medium">Kartu yang Dibuang ({gameState.discardPile.length})</h3>
+              <h3 className="text-black font-medium">Kartu yang Dibuang ({gameData.discardPile.length})</h3>
               <div className="flex space-x-2">
-                {gameState.discardPile.length > 0 && (
+                {gameData.discardPile.length > 0 && (
                   <button
                     onClick={() => setGroupByPlayer(!groupByPlayer)}
                     className="px-3 py-1 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors text-sm border border-gray-600"
@@ -659,24 +605,24 @@ const GameBoard: React.FC = () => {
               // Group by player view
               (() => {
                 const cardsToShow = showAllDiscarded
-                  ? gameState.discardPile.slice()
-                  : gameState.discardPile.slice(-20);
+                  ? gameData.discardPile.slice()
+                  : gameData.discardPile.slice(-20);
 
                 // Group cards by player
                 const cardsByPlayer: Record<string, { card: Card; originalIndex: number }[]> = {};
                 cardsToShow.forEach((card, index) => {
-                  const discardedByPlayer = gameState.discardedBy?.[card.id];
+                  const discardedByPlayer = gameData.discardedBy?.[card.id];
                   const playerId = discardedByPlayer || 'unknown';
                   if (!cardsByPlayer[playerId]) {
                     cardsByPlayer[playerId] = [];
                   }
-                  cardsByPlayer[playerId].push({ card, originalIndex: gameState.discardPile.length - cardsToShow.length + index });
+                  cardsByPlayer[playerId].push({ card, originalIndex: gameData.discardPile.length - cardsToShow.length + index });
                 });
 
                 return (
                   <div className="space-y-4">
                     {Object.entries(cardsByPlayer).map(([playerId, cards]) => {
-                      const player = gameState.players.find(p => p.id === playerId);
+                      const player = gameData.players.find(p => p.id === playerId);
                       const playerName = player?.displayName || 'Unknown';
                       const playerColor = player ? getPlayerColor(playerId) : 'bg-gray-200';
 
@@ -714,10 +660,10 @@ const GameBoard: React.FC = () => {
               // Chronological view
               <div className="flex flex-wrap gap-2 justify-center">
                 {showAllDiscarded
-                  ? gameState.discardPile.slice().reverse().map((card, index) => {
-                      const discardedByPlayer = gameState.discardedBy?.[card.id];
+                  ? gameData.discardPile.slice().reverse().map((card, index) => {
+                      const discardedByPlayer = gameData.discardedBy?.[card.id];
                       const playerName = discardedByPlayer
-                        ? gameState.players.find(p => p.id === discardedByPlayer)?.displayName || 'Unknown'
+                        ? gameData.players.find(p => p.id === discardedByPlayer)?.displayName || 'Unknown'
                         : null;
 
                       return (
@@ -733,7 +679,7 @@ const GameBoard: React.FC = () => {
                             </span>
                           </div>
                           <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 bg-black text-white text-xs rounded px-1 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                            #{gameState.discardPile.length - index}
+                            #{gameData.discardPile.length - index}
                           </div>
                           {playerName && (
                             <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
@@ -743,10 +689,10 @@ const GameBoard: React.FC = () => {
                         </div>
                       );
                     })
-                  : gameState.discardPile.slice(-10).reverse().map((card, index) => {
-                      const discardedByPlayer = gameState.discardedBy?.[card.id];
+                  : gameData.discardPile.slice(-10).reverse().map((card, index) => {
+                      const discardedByPlayer = gameData.discardedBy?.[card.id];
                       const playerName = discardedByPlayer
-                        ? gameState.players.find(p => p.id === discardedByPlayer)?.displayName || 'Unknown'
+                        ? gameData.players.find(p => p.id === discardedByPlayer)?.displayName || 'Unknown'
                         : null;
 
                       return (
@@ -762,7 +708,7 @@ const GameBoard: React.FC = () => {
                             </span>
                           </div>
                           <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 bg-black text-white text-xs rounded px-1 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                            #{gameState.discardPile.length - index}
+                            #{gameData.discardPile.length - index}
                           </div>
                           {playerName && (
                             <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
@@ -775,9 +721,9 @@ const GameBoard: React.FC = () => {
                 }
               </div>
             )}
-            {gameState.discardPile.length > (groupByPlayer ? 20 : 10) && !showAllDiscarded && (
+            {gameData.discardPile.length > (groupByPlayer ? 20 : 10) && !showAllDiscarded && (
               <div className="text-center mt-2 text-sm text-gray-600">
-                Menampilkan {groupByPlayer ? '20' : '10'} kartu terakhir dari {gameState.discardPile.length} kartu total
+                Menampilkan {groupByPlayer ? '20' : '10'} kartu terakhir dari {gameData.discardPile.length} kartu total
               </div>
             )}
           </div>
@@ -785,11 +731,55 @@ const GameBoard: React.FC = () => {
 
         {/* My Hand */}
         {myPlayer && (
-          <div className="bg-white border border-black rounded-lg p-6">
+          <div className="bg-white border-2 border-black rounded-xl shadow-lg p-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-black font-medium">Kartu Saya ({myPlayer.hand.length})</h3>
+              <div>
+                <h3 className="text-black font-medium">Kartu Saya ({myPlayer.getHandSize()})</h3>
+                <div className="flex space-x-2 mt-2">
+                  <button
+                    onClick={() => setSortBy('none')}
+                    className={`px-3 py-1 text-xs rounded transition-colors border ${
+                      sortBy === 'none'
+                        ? 'bg-black text-white border-black'
+                        : 'bg-white text-black border-gray-400 hover:bg-gray-100'
+                    }`}
+                  >
+                    Acak
+                  </button>
+                  <button
+                    onClick={() => setSortBy('rank')}
+                    className={`px-3 py-1 text-xs rounded transition-colors border ${
+                      sortBy === 'rank'
+                        ? 'bg-black text-white border-black'
+                        : 'bg-white text-black border-gray-400 hover:bg-gray-100'
+                    }`}
+                  >
+                    Urut Angka
+                  </button>
+                  <button
+                    onClick={() => setSortBy('suit')}
+                    className={`px-3 py-1 text-xs rounded transition-colors border ${
+                      sortBy === 'suit'
+                        ? 'bg-black text-white border-black'
+                        : 'bg-white text-black border-gray-400 hover:bg-gray-100'
+                    }`}
+                  >
+                    Urut Jenis
+                  </button>
+                  <button
+                    onClick={() => setSortBy('both')}
+                    className={`px-3 py-1 text-xs rounded transition-colors border ${
+                      sortBy === 'both'
+                        ? 'bg-black text-white border-black'
+                        : 'bg-white text-black border-gray-400 hover:bg-gray-100'
+                    }`}
+                  >
+                    Urut Lengkap
+                  </button>
+                </div>
+              </div>
               <div className="flex space-x-2">
-                {selectedCards.length >= 3 && isMyTurn && (
+                {selectedCards.length >= 3 && isMyTurn && gameData.currentTurnPhase === 'meldPhase' && (
                   <button
                     onClick={handleMeldCards}
                     className="px-4 py-2 bg-black text-white rounded hover:bg-gray-800 transition-colors border border-black"
@@ -798,21 +788,21 @@ const GameBoard: React.FC = () => {
                   </button>
                 )}
                 {isMyTurn && (
-                  <span className="text-black font-medium">Ini giliran Anda!</span>
+                  <span className="text-black font-medium">Ini giliran Anda! ({gameData.currentTurnPhase})</span>
                 )}
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2 justify-center">
-              {myPlayer.hand.map(card => (
+            <div className="flex flex-wrap gap-3 justify-center">
+              {getSortedHand(myPlayer.getHand()).map(card => (
                 <button
                   key={card.id}
                   onClick={() => handleCardSelect(card.id)}
                   disabled={!isMyTurn}
-                  className={`w-12 h-16 rounded-lg flex items-center justify-center text-lg font-bold transition-all border ${
+                  className={`w-16 h-24 rounded-lg flex items-center justify-center text-lg font-bold transition-all border-2 shadow-md ${
                     selectedCards.includes(card.id)
-                      ? 'bg-black text-white border-black scale-110 shadow-lg'
-                      : 'bg-white text-black border-gray-400 hover:scale-105'
+                      ? 'bg-black text-white border-black scale-110 shadow-xl'
+                      : 'bg-white text-black border-gray-400 hover:scale-105 hover:shadow-lg'
                   } ${!isMyTurn ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                 >
                   <span className={getCardColor(card)}>
@@ -822,77 +812,128 @@ const GameBoard: React.FC = () => {
               ))}
             </div>
 
-            {myPlayer.hand.length > 0 && isMyTurn && (
+            {myPlayer.getHandSize() > 0 && isMyTurn && (
               <div className="mt-4 text-center">
-                {/* Special rules for first player */}
-                {!gameState.firstPlayerDiscarded && gameState.currentPlayerIndex === 0 && myPlayer.hand.length === 8 && (
-                  <div className="mb-3 p-2 bg-orange-50 border border-orange-200 rounded">
-                    <p className="text-sm text-orange-700 font-medium">
-                      🎯 Langkah pertama: Wajib membuang 1 kartu
-                    </p>
-                    <p className="text-xs text-orange-600 mt-1">
-                      Pilih 1 kartu untuk dibuang (8 → 7 kartu)
-                    </p>
+                {/* Show different actions based on turn phase */}
+                {gameData.currentTurnPhase === 'drawPhase' && (
+                  <div>
+                    {game.mustDiscardFirst() ? (
+                      <p className="text-sm text-orange-600 mb-2">
+                        ⚠️ Pemain pertama wajib membuang 1 kartu terlebih dahulu
+                      </p>
+                    ) : (
+                      <p className="text-sm text-gray-600 mb-2">
+                        🎴 Ambil kartu dari deck atau discard pile untuk memulai giliran
+                      </p>
+                    )}
                   </div>
                 )}
 
-                {/* Regular game rules */}
-                {!gameState.firstPlayerDiscarded && gameState.currentPlayerIndex !== 0 && (
-                  <p className="text-sm text-gray-600 mb-2">
-                    Menunggu pemain pertama membuang kartu...
-                  </p>
-                )}
+                {gameData.currentTurnPhase === 'meldPhase' && (
+                  <div>
+                    {!myPlayer.hasLaidRunMeld() && (
+                      <p className="text-sm text-black mb-2">
+                        💡 Wajib menurunkan Urutan (Run) terlebih dahulu
+                      </p>
+                    )}
+                    {game.lastDrawFromDiscard() && (
+                      <p className="text-sm text-black mb-2">
+                        ⚠️ Wajib menurunkan kombinasi setelah ambil dari discard pile
+                      </p>
+                    )}
 
-                {gameState.firstPlayerDiscarded && !myPlayer.hasLaidRun && (
-                  <p className="text-sm text-black mb-2">
-                    💡 Wajib menurunkan Urutan (Run) terlebih dahulu
-                  </p>
-                )}
-                {gameState.lastDrawFromDiscard && (
-                  <p className="text-sm text-black mb-2">
-                    ⚠️ Wajib menurunkan kombinasi setelah ambil dari discard pile
-                  </p>
-                )}
+                    <p className="text-sm text-gray-600 mb-2">
+                      Pilih kartu untuk dibuat meld (minimal 3 kartu) atau lewati
+                    </p>
 
-                {gameState.firstPlayerDiscarded && (
-                  <p className="text-sm text-gray-600 mb-2">
-                    Pilih kartu untuk dibuang atau buat meld (minimal 3 kartu)
-                  </p>
-                )}
+                    <div className="flex justify-center space-x-2">
+                      {selectedCards.length >= 3 && (
+                        <button
+                          onClick={handleMeldCards}
+                          className="px-4 py-2 bg-black text-white rounded hover:bg-gray-800 transition-colors border border-black"
+                        >
+                          Buat Meld ({selectedCards.length})
+                        </button>
+                      )}
+                      <button
+                        onClick={async () => {
+                          // Skip meld phase (only if not required)
+                          if (!game.lastDrawFromDiscard()) {
+                            try {
+                              game.skipMeldPhase();
 
-                <div className="flex justify-center space-x-2">
-                  {/* Only show discard button if it's allowed */}
-                  {selectedCards.length === 1 && !gameState.lastDrawFromDiscard &&
-                   (gameState.firstPlayerDiscarded ||
-                    (!gameState.firstPlayerDiscarded && gameState.currentPlayerIndex === 0 && myPlayer.hand.length === 8)) && (
-                    <button
-                      onClick={() => handleDiscardCard(selectedCards[0])}
-                      className="px-4 py-2 bg-black text-white rounded hover:bg-gray-800 transition-colors border border-black"
-                    >
-                      {gameState.currentPlayerIndex === 0 && myPlayer.hand.length === 8 ? 'Buang Kartu Pertama' : 'Buang Kartu'}
-                    </button>
-                  )}
-                  {selectedCards.length >= 3 && gameState.firstPlayerDiscarded && (
-                    <button
-                      onClick={handleMeldCards}
-                      className="px-4 py-2 bg-black text-white rounded hover:bg-gray-800 transition-colors border border-black"
-                    >
-                      Buat Meld ({selectedCards.length})
-                    </button>
-                  )}
-                  {selectedCards.length > 0 && (
-                    <button
-                      onClick={() => setSelectedCards([])}
-                      className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors border border-gray-600"
-                    >
-                      Batal Pilih
-                    </button>
-                  )}
-                </div>
-                {canPlayerWin(myPlayer) && (
-                  <div className="mt-2 text-black text-sm font-bold">
-                    🎯 Siap Memukul! Tinggal 1 kartu lagi
+                              // Update Firebase with new game state
+                              if (roomId) {
+                                const roomRef = doc(db, 'rooms', roomId);
+                                await updateDoc(roomRef, {
+                                  'gameData': game.getDataForFirestore(),
+                                  lastUpdate: serverTimestamp()
+                                });
+                              }
+
+                              setError('');
+                            } catch (err: any) {
+                              setError(err.message);
+                            }
+                          }
+                        }}
+                        className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors border border-gray-600"
+                        disabled={game.lastDrawFromDiscard()}
+                      >
+                        Lewati
+                      </button>
+                      {selectedCards.length > 0 && (
+                        <button
+                          onClick={() => setSelectedCards([])}
+                          className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors border border-gray-600"
+                        >
+                          Batal Pilih
+                        </button>
+                      )}
+                    </div>
                   </div>
+                )}
+
+                {gameData.currentTurnPhase === 'discardPhase' && (
+                  <div>
+                    <p className="text-sm text-gray-600 mb-2">
+                      Pilih 1 kartu untuk dibuang
+                    </p>
+
+                    <div className="flex justify-center space-x-2">
+                      {selectedCards.length === 1 && (
+                        <button
+                          onClick={() => handleDiscardCard(selectedCards[0])}
+                          className="px-4 py-2 bg-black text-white rounded hover:bg-gray-800 transition-colors border border-black"
+                        >
+                          Buang Kartu
+                        </button>
+                      )}
+                      {selectedCards.length > 0 && (
+                        <button
+                          onClick={() => setSelectedCards([])}
+                          className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors border border-gray-600"
+                        >
+                          Batal Pilih
+                        </button>
+                      )}
+                    </div>
+
+                    {myPlayer.canWin() && (
+                      <div className="mt-2 text-black text-sm font-bold">
+                        🎯 Siap Memukul! Tinggal 1 kartu lagi
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {selectedCards.length > 0 && gameData.currentTurnPhase !== 'discardPhase' && (
+                  <button
+                    onClick={() => setSelectedCards([])}
+                    className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors border border-gray-600"
+                  >
+                    Batal Pilih
+                  </button>
                 )}
               </div>
             )}

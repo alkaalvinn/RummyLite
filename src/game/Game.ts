@@ -113,15 +113,8 @@ export class Game {
     // Reset turn manager for game start
     this.turnManager.reset();
 
-    // First player with 8 cards starts in discard phase (must discard first)
-    // Other players start in draw phase
-    const firstPlayerIndex = this.getCurrentPlayerIndex();
-    const firstPlayer = this.players[firstPlayerIndex];
-    if (firstPlayer.getHandSize() === 8) {
-      this.currentTurnPhase = 'discardPhase'; // First player must discard first
-    } else {
-      this.currentTurnPhase = 'drawPhase'; // Other players can draw
-    }
+    // All players start in draw phase (no special first player rules)
+    this.currentTurnPhase = 'drawPhase';
 
     // Debug game state after initialization
     this.debugGameState();
@@ -144,24 +137,35 @@ export class Game {
     // Step 4: shuffle remaining 51 cards
     this.deck = new Deck();
     this.deck.addCards(remainingCards);
+
+    // Step 5: Add joker cards back to deck for dealing
+    const jokerCardsWithUniqueIds = activeJokerCards
+      .filter(card => card.id !== jokerDeterminer.id)
+      .map((card, index) => {
+        const jokerCard = new Card(card.suit, card.rank, true);
+        (jokerCard as any).id = `${card.id}-joker-${index}`; // Create unique ID
+        return jokerCard;
+      });
+
+    this.deck.addCards(jokerCardsWithUniqueIds);
     this.deck.shuffle();
 
     // Store joker reference card and active joker value for display
     this.jokerReferenceCard = jokerDeterminer;
     this.activeJokerValue = jokerDeterminer.rank;
-    this.jokerCards = activeJokerCards.filter(card => card.id !== jokerDeterminer.id);
+
+    // Store the joker cards with unique IDs
+    this.jokerCards = jokerCardsWithUniqueIds;
   }
 
-  // Deal cards to players according to PRD
+  // Deal cards to players (Gin Rummy style - 7 cards each)
   private dealCards(): void {
-    // Select random first player
-    const firstPlayerIndex = Math.floor(Math.random() * this.players.length);
-    this.turnManager.setCurrentPlayerIndex(firstPlayerIndex);
+    // Start with Player 1 (index 0) as first player
+    this.turnManager.setCurrentPlayerIndex(0);
 
+    // Give each player 7 cards
     this.players.forEach((player) => {
-      const isStartingPlayer = this.players.indexOf(player) === firstPlayerIndex;
-      const cardsCount = isStartingPlayer ? 8 : 7;
-      const cards = this.deck.draw(cardsCount);
+      const cards = this.deck.draw(7); // All players get 7 cards
       player.addCards(cards);
       player.sortHand();
     });
